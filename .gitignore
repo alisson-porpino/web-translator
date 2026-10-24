@@ -1,0 +1,12 @@
+# Extension
+extension/node_modules/
+extension/dist/
+extension/.wxt/
+
+# Desktop app (Rust/Tauri)
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+# OS / editor
+.DS_Store
+*.log

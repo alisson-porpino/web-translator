@@ -1,0 +1,14 @@
+detector.fp16.onnx is an fp16 ONNX export, by hon-lu, of
+ogkalu/comic-text-and-bubble-detector (RT-DETR-v2, fine-tuned by ogkalu2 on
+~11k manga/manhwa/manhua/western-comic images for text and speech-bubble
+detection). Both the original model and the fp16 export are licensed under
+Apache License 2.0, which permits redistribution.
+
+- Original: https://huggingface.co/ogkalu/comic-text-and-bubble-detector
+- fp16 export used here: https://huggingface.co/hon-lu/comic-text-and-bubble-detector-onnx-fp16
+- Upstream project using this model: https://github.com/ogkalu2/comic-translate
+
+Preprocessing/postprocessing in engines/detect.rs mirrors the reference
+implementation in Hon-Lu/OverTranslate (MIT-licensed), specifically
+src/OverTranslate/Services/Ocr/Manga/MangaTextDetector.cs, since those
+details aren't documented on the model cards themselves.

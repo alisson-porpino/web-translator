@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Manga Web Translator</title>
+    <style>
+      body {
+        font: 13px system-ui, sans-serif;
+        width: 300px;
+        margin: 0;
+        padding: 12px;
+        color: #1a1a1a;
+      }
+      h1 {
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+      h2 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #888;
+        margin: 16px 0 6px;
+      }
+      label {
+        display: block;
+        margin-top: 10px;
+        font-weight: 600;
+      }
+      input,
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 4px;
+        padding: 4px 6px;
+        font: inherit;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .row label {
+        margin: 0;
+      }
+      button {
+        margin-top: 10px;
+        width: 100%;
+        padding: 6px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #currentSite {
+        font: 11px/1.4 ui-monospace, monospace;
+        background: #f3f3f3;
+        border-radius: 4px;
+        padding: 6px 8px;
+        word-break: break-all;
+        margin-top: 4px;
+      }
+      .toggle-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 8px;
+      }
+      .toggle-row span {
+        font-weight: 600;
+      }
+      hr {
+        border: none;
+        border-top: 1px solid #e5e5e5;
+        margin: 14px 0 0;
+      }
+      #status,
+      #manualStatus {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #666;
+        min-height: 1.2em;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Manga Web Translator</h1>
+
+    <h2>This tab</h2>
+    <div id="currentSite">—</div>
+    <div class="toggle-row">
+      <span>Auto-translate on this site</span>
+      <input id="siteEnabled" type="checkbox" style="width:auto" />
+    </div>
+    <p style="font-size:11px;color:#888;margin:4px 0 0">
+      Off by default everywhere. Turning this on only affects this site -- never other tabs.
+    </p>
+    <button id="translateNow">Translate this page now</button>
+    <div id="manualStatus"></div>
+
+    <hr />
+    <h2>Desktop app resources</h2>
+    <div id="resourceUsage" style="font-size:11px;color:#666;line-height:1.5;white-space:pre-line">Connecting…</div>
+
+    <hr />
+    <h2>General</h2>
+
+    <label for="serverUrl">Desktop app server URL</label>
+    <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" />
+    <p style="font-size:11px;color:#888;margin:4px 0 0">
+      Engine (local/Google) and API key are configured in the desktop app itself.
+    </p>
+
+    <label for="targetLang">Target language</label>
+    <select id="targetLang">
+      <option value="en">English</option>
+      <option value="pt">Português</option>
+      <option value="es">Español</option>
+    </select>
+
+    <button id="save">Save</button>
+    <div id="status"></div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+DejaVuSans.ttf is from the DejaVu Fonts project (https://dejavu-fonts.github.io/),
+version 2.37, licensed under the Bitstream Vera License / DejaVu changes
+(both permissive, free for any use including redistribution). See the
+project's LICENSE file for full text: https://dejavu-fonts.github.io/License.html

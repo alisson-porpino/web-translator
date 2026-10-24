@@ -1,0 +1,414 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b6b70;
+  --border: #e2e2e5;
+  --accent: #6366f1;
+  --accent-fg: #fff;
+  --ok: #16a34a;
+  --bad: #dc2626;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.03);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18181a;
+    --surface: #232325;
+    --fg: #f0f0f0;
+    --muted: #9a9a9e;
+    --border: #38383a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 16px;
+  -webkit-font-smoothing: antialiased;
+  overflow-y: auto;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.app-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+h1 {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  box-shadow: var(--shadow);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+}
+
+.catalog-row {
+  margin-top: 10px;
+}
+
+.catalog-row:first-child {
+  margin-top: 0;
+}
+
+.catalog-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.catalog-row__stage {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.catalog-row__manage {
+  width: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.catalog-row__picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.catalog-row__picker select {
+  margin-top: 0;
+  flex: 1;
+}
+
+.catalog-row__download {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.font-stack-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.font-stack-row input {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.font-stack-row button {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.manage-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 20px;
+}
+
+/* Without this, the `hidden` attribute has no effect: the class rule
+   above and the browser default [hidden] rule have equal specificity,
+   and this one -- being an author rule -- always wins, so the overlay
+   stayed visible (and unclosable) regardless of the `hidden` attribute
+   JS toggles on it. */
+.manage-overlay[hidden] {
+  display: none;
+}
+
+.manage-panel {
+  width: 100%;
+  max-width: 380px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.manage-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.manage-panel__header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.manage-panel__close {
+  width: auto;
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+  border: none;
+  background: none;
+}
+
+.manage-panel__list {
+  overflow-y: auto;
+  padding: 8px 14px 14px;
+}
+
+.manage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.manage-item + .manage-item {
+  border-top: 1px solid var(--border);
+}
+
+.manage-item__info {
+  min-width: 0;
+}
+
+.manage-item__label {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-item__size {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.manage-item__action {
+  width: auto;
+  padding: 5px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status code {
+  background: none;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 12px 14px 14px;
+  margin: 0 0 12px;
+  box-shadow: var(--shadow);
+}
+
+legend {
+  font-weight: 650;
+  font-size: 12px;
+  padding: 0 4px;
+  color: var(--fg);
+}
+
+label {
+  display: block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+label:first-of-type {
+  margin-top: 0;
+}
+
+input,
+select {
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 9px;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  transition: border-color 0.12s ease;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+details {
+  margin: 0 0 12px;
+  padding: 2px 2px 0;
+}
+
+details summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 2px;
+}
+
+details[open] summary {
+  margin-bottom: 4px;
+}
+
+button {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+}
+
+button.primary {
+  margin-top: 4px;
+  color: var(--accent-fg);
+  background: var(--accent);
+  border: none;
+}
+
+button:active {
+  opacity: 0.8;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#feedback {
+  margin-top: 8px;
+  font-size: 12px;
+  min-height: 1.2em;
+  text-align: center;
+  color: var(--ok);
+}
+
+#feedback.error {
+  color: var(--bad);
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 5px 0 0;
+}
+
+.progress-wrap {
+  margin-top: 10px;
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}

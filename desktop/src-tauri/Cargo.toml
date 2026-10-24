@@ -1,0 +1,78 @@
+[package]
+name = "manga-web-translator"
+version = "0.1.0"
+description = "Local background server + settings UI for the Manga Web Translator browser extension"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+futures-util = "0.3"
+sha2 = "0.10"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+imageproc = "0.25"
+ab_glyph = "0.2"
+ort = { version = "2.0.0-rc.14", features = ["download-binaries"] }
+# Real-time CPU/RAM usage readout for the resource-usage display (settings
+# window + extension popup) -- cross-platform, no per-OS cfg needed unlike
+# the memory *limit* above.
+sysinfo = "0.39"
+
+[target.'cfg(unix)'.dependencies]
+# For the optional memory cap (resource_limits.rs): setrlimit(RLIMIT_AS, ..)
+# on macOS/Linux.
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# For the optional memory cap's Windows arm (resource_limits.rs): a Job
+# Object's ProcessMemoryLimit, the Windows equivalent of setrlimit above.
+# Written and verified against the published 0.62.0 source on GitHub
+# (exact signatures/feature gates, not guessed) but never compiled or run
+# on real Windows -- this project is developed on macOS. Verify on an
+# actual Windows box before relying on it.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Metal GPU offload -- without it, a 7B model runs CPU-only, which makes a
+# per-bubble translation step unworkably slow. Not enabled for other
+# platforms here: there's no single safe-default GPU backend to assume
+# across arbitrary Windows/Linux hardware (CUDA vs Vulkan vs CPU-only).
+llama-cpp-2 = { version = "0.1.160", features = ["metal", "mtmd"] }
+# CoreML EP for the ONNX sessions (detector/OCR/inpainting) -- without it,
+# the inpainting model in particular (a 512x512 conv-heavy network, run
+# once per text region) was taking 10+ seconds per region on CPU alone.
+# Cargo unions features for the same dependency declared in multiple
+# sections, so this adds onto the plain `ort` entry above rather than
+# conflicting with it.
+ort = { version = "2.0.0-rc.14", features = ["coreml"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# CUDA offload -- same reasoning as Metal above: an unaccelerated 7B model
+# is impractically slow. Requires the CUDA toolkit (nvcc) on the machine
+# that *builds* this (not just runs it) -- untested here (this is built on
+# macOS); verify on an actual Windows/Linux+NVIDIA box before relying on
+# it, and if that machine has no CUDA toolkit, drop this feature and fall
+# back to plain CPU rather than fail the build.
+llama-cpp-2 = { version = "0.1.160", features = ["cuda", "mtmd"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

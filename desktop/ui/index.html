@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Manga Web Translator</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <img src="icon.png" alt="" class="app-icon" />
+      <div>
+        <h1>Manga Web Translator</h1>
+        <p class="subtitle">Configures the background server your browser extension talks to.</p>
+      </div>
+    </header>
+
+    <div class="status-row">
+      <div class="status">
+        <span class="dot"></span>
+        <span>Running on <code id="serverAddr">http://127.0.0.1:8000</code></span>
+      </div>
+      <div class="status" id="usageStatus">
+        <span class="dot" style="background:#9a9a9a"></span>
+        <span id="usageText">Google usage today: —</span>
+      </div>
+      <div class="status" id="resourceStatus">
+        <span class="dot" style="background:#9a9a9a"></span>
+        <span id="resourceText">CPU / RAM: —</span>
+      </div>
+    </div>
+
+    <form id="settingsForm">
+      <fieldset>
+        <legend>Engine</legend>
+        <label for="enginePreference">Translation engine</label>
+        <select id="enginePreference">
+          <option value="local-then-google">Local first, Google as fallback</option>
+          <option value="google-then-local">Google first, local as fallback</option>
+          <option value="local-only">Local only (free, offline)</option>
+          <option value="google-only">Google only</option>
+        </select>
+        <p class="hint">The local engine is fully offline and free, but only reads Japanese today. Google (Gemini) reads any language but costs API quota.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Local (offline) models</legend>
+        <p class="hint" style="margin-top:0">
+          Pick which model each stage uses. Nothing downloads until you actually select it here —
+          switching to an option that isn't on disk yet asks first.
+        </p>
+        <div id="modelCatalog"><p class="hint">Loading…</p></div>
+        <div class="progress-wrap" id="downloadProgressWrap" hidden>
+          <div class="progress-track"><div class="progress-bar" id="downloadProgressBar"></div></div>
+          <p class="hint" id="downloadProgressText"></p>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Translation sampling (local LLM, advanced)</legend>
+        <p class="hint" style="margin-top:0">
+          Leave everything blank for today's default: greedy, deterministic decoding (same
+          translation every time for the same input). Setting a temperature above 0 switches to
+          real sampling, like the Koharu reference tool does — the other fields fill in sensible
+          values for anything you leave blank once temperature is set.
+        </p>
+
+        <label for="llmTemperature">Temperature</label>
+        <input id="llmTemperature" type="number" min="0" step="0.05" placeholder="Blank = greedy" />
+
+        <label for="llmTopK">Top-k</label>
+        <input id="llmTopK" type="number" min="0" step="1" placeholder="Blank = 40" />
+
+        <label for="llmTopP">Top-p</label>
+        <input id="llmTopP" type="number" min="0" max="1" step="0.05" placeholder="Blank = 0.9" />
+
+        <label for="llmMinP">Min-p</label>
+        <input id="llmMinP" type="number" min="0" max="1" step="0.01" placeholder="Blank = 0.05" />
+
+        <label for="llmMaxTokens">Max tokens per page</label>
+        <input id="llmMaxTokens" type="number" min="1" step="100" placeholder="Blank = 2000" />
+        <p class="hint">Ceiling for a whole page's worth of numbered translation output, not one line.</p>
+
+        <label for="llmRepeatPenalty">Repetition penalty</label>
+        <input id="llmRepeatPenalty" type="number" min="0" step="0.05" placeholder="Blank = 1.0 (off, only used when sampling)" />
+
+        <label for="llmFrequencyPenalty">Frequency penalty</label>
+        <input id="llmFrequencyPenalty" type="number" step="0.05" placeholder="Blank = 0.0 (off)" />
+
+        <label for="llmPresencePenalty">Presence penalty</label>
+        <input id="llmPresencePenalty" type="number" step="0.05" placeholder="Blank = 0.0 (off)" />
+      </fieldset>
+
+      <fieldset>
+        <legend>Google (Gemini)</legend>
+        <label for="googleApiKey">API key</label>
+        <input id="googleApiKey" type="password" placeholder="Leave empty if you only want local" autocomplete="off" />
+        <p class="hint">Get one at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Stored only on this machine.</p>
+
+        <label for="googleDailyCap">Daily request cap</label>
+        <input id="googleDailyCap" type="number" min="0" step="1" />
+        <p class="hint">Enforced here, before any request is sent — independent of Google's own billing alerts. 0 = unlimited.</p>
+      </fieldset>
+
+      <details>
+        <summary>Advanced</summary>
+        <label for="geminiModel">Gemini model (OCR + translation only)</label>
+        <input id="geminiModel" type="text" />
+
+        <label>Lettering font stack (.ttf/.otf paths, optional, ordered)</label>
+        <div id="fontStackList"></div>
+        <button type="button" id="addFontBtn" class="catalog-row__manage">+ Add font</button>
+        <p class="hint">
+          Each character is drawn with the first font in this list that has a glyph for it — a
+          built-in Japanese fallback is always tried last, so CJK text still renders even with an
+          empty or Latin-only stack. Order matters: put your main lettering font first, a kanji
+          font after it, and so on. Leave the list empty for the built-in font. For an authentic
+          comic look, buy/download
+          <a href="https://blambot.com" target="_blank" rel="noreferrer">Anime Ace</a> or
+          <a href="https://www.comicbookfonts.com" target="_blank" rel="noreferrer">Wild Words</a>
+          yourself (personal-use licenses exist) and point an entry at the .ttf file on your disk —
+          this app never bundles or redistributes those.
+        </p>
+
+        <label for="port">Server port</label>
+        <input id="port" type="number" min="1024" max="65535" />
+        <p class="hint">Changing the port requires restarting the app.</p>
+
+        <label for="detectionScoreThreshold">Detection confidence threshold</label>
+        <input id="detectionScoreThreshold" type="number" min="0" max="1" step="0.05" />
+        <p class="hint">How confident the text detector must be before counting something as text (0-1). Lower catches more but noisier regions; higher is stricter and may miss faint/unusual lettering. Default 0.3.</p>
+
+        <label for="maxCpuThreads">Max CPU threads for local models</label>
+        <input id="maxCpuThreads" type="number" min="0" step="1" />
+        <p class="hint">Caps how many threads llama.cpp/ONNX Runtime use per inference call. 0 = no cap (use every core). Applies to new jobs right away, no restart needed.</p>
+
+        <label for="maxMemoryMb">Max memory for local models (MB)</label>
+        <input id="maxMemoryMb" type="number" min="0" step="256" />
+        <p class="hint">Hard cap on this app's memory use (macOS/Linux only — no effect on Windows yet). A job that would cross it fails instead of letting the whole machine start swapping. 0 = no cap.</p>
+
+        <label for="maxVramMb">Max VRAM budget for local models (MB)</label>
+        <input id="maxVramMb" type="number" min="0" step="256" />
+        <p class="hint">There's no OS-level way to cap GPU memory the way the CPU/RAM caps above do, so this is an estimate: fewer of a model's layers get offloaded to the GPU to fit this budget, the rest run on CPU instead (slower, and counted against the memory cap above, not this one). 0 = no budget, offload every layer (today's default). Takes effect the next time a model loads — changing it with a model already loaded reloads it.</p>
+      </details>
+
+      <button type="submit" class="primary">Save</button>
+      <div id="feedback"></div>
+    </form>
+
+    <div id="manageOverlay" class="manage-overlay" hidden>
+      <div class="manage-panel">
+        <div class="manage-panel__header">
+          <h2 id="manageTitle">Manage models</h2>
+          <button type="button" id="manageCloseBtn" class="manage-panel__close" aria-label="Close">×</button>
+        </div>
+        <div id="manageList" class="manage-panel__list"></div>
+      </div>
+    </div>
+
+    <script src="main.js"></script>
+  </body>
+</html>
