@@ -15,6 +15,8 @@ const el = {
   browseModelsDirBtn: document.getElementById('browseModelsDirBtn'),
   ocrModel: document.getElementById('ocrModel'),
   inpaintingModel: document.getElementById('inpaintingModel'),
+  translationModel: document.getElementById('translationModel'),
+  translationQuantization: document.getElementById('translationQuantization'),
   savePipelineModelsBtn: document.getElementById('savePipelineModelsBtn'),
   pipelineModelsFeedback: document.getElementById('pipelineModelsFeedback'),
   serverAddr: document.getElementById('serverAddr'),
@@ -141,6 +143,26 @@ async function load() {
   applySettings(settings);
 }
 
+// Koharu's full local translation catalog (~27 models as of the pinned
+// rev), fetched once and kept here so the quantization dropdown can be
+// re-populated whenever the model dropdown changes, without a round trip.
+let translationModels = [];
+
+function renderQuantizationOptions(modelId) {
+  const model = translationModels.find((m) => m.model === modelId);
+  el.translationQuantization.innerHTML = '';
+  for (const q of model?.quantizations ?? []) {
+    const opt = document.createElement('option');
+    opt.value = q.id;
+    opt.textContent = q.downloaded ? q.name : `${q.name} (will download)`;
+    el.translationQuantization.appendChild(opt);
+  }
+}
+
+el.translationModel.addEventListener('change', () => {
+  renderQuantizationOptions(el.translationModel.value);
+});
+
 async function loadPipelineModels() {
   try {
     const models = await invoke('get_pipeline_models');
@@ -150,6 +172,32 @@ async function loadPipelineModels() {
     el.pipelineModelsFeedback.classList.add('error');
     el.pipelineModelsFeedback.textContent = `Could not read Koharu's current model selection: ${err}`;
   }
+
+  try {
+    const [models, selection] = await Promise.all([
+      invoke('get_translation_models'),
+      invoke('get_translation_selection'),
+    ]);
+    translationModels = models;
+    el.translationModel.innerHTML = '';
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.model;
+      opt.textContent = m.name;
+      el.translationModel.appendChild(opt);
+    }
+    if (selection.model && models.some((m) => m.model === selection.model)) {
+      el.translationModel.value = selection.model;
+    }
+    renderQuantizationOptions(el.translationModel.value);
+    if (selection.quantization) {
+      el.translationQuantization.value = selection.quantization;
+    }
+  } catch (err) {
+    el.translationModel.innerHTML = '<option value="">Could not load</option>';
+    el.pipelineModelsFeedback.classList.add('error');
+    el.pipelineModelsFeedback.textContent = `Could not read Koharu's translation model catalog: ${err}`;
+  }
 }
 
 el.savePipelineModelsBtn.addEventListener('click', async () => {
@@ -157,6 +205,12 @@ el.savePipelineModelsBtn.addEventListener('click', async () => {
   el.pipelineModelsFeedback.textContent = 'Saving…';
   try {
     await invoke('set_pipeline_models', { ocr: el.ocrModel.value, inpainting: el.inpaintingModel.value });
+    if (el.translationModel.value) {
+      await invoke('set_translation_model', {
+        model: el.translationModel.value,
+        quantization: el.translationQuantization.value || null,
+      });
+    }
     el.pipelineModelsFeedback.textContent = 'Saved. The next translation job will use it.';
   } catch (err) {
     el.pipelineModelsFeedback.classList.add('error');

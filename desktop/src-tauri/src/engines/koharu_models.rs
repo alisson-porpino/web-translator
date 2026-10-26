@@ -15,11 +15,25 @@
 //! this covers exactly what used to exist in this app's own (now-deleted)
 //! per-stage model catalog, e.g. LaMa for inpainting.
 //!
-//! The fixed set of valid model ids is hardcoded as <option> tags in
-//! desktop/ui/index.html, mirroring koharu-pipeline's config.rs -- keep
-//! both in sync if the pinned Koharu rev ever adds/renames a model.
+//! The fixed set of valid OCR/inpainting model ids is hardcoded as
+//! <option> tags in desktop/ui/index.html, mirroring koharu-pipeline's
+//! config.rs -- keep both in sync if the pinned Koharu rev ever
+//! adds/renames a model.
+//!
+//! Translation-model selection is handled separately below
+//! (list_translation_models/get_translation_selection/
+//! set_translation_model): unlike OCR/inpainting, Koharu's local
+//! translation catalog is large (~27 models, each with several
+//! quantizations) and changes with the pinned rev, so it's listed
+//! dynamically via koharu_translator::Translator::models() rather than
+//! hardcoded, and only the `Provider::Local` entries are exposed here --
+//! Koharu also supports many cloud providers (OpenRouter, Claude, Grok,
+//! DeepSeek, etc.) but wiring API keys for each is out of scope; this
+//! app's own "Engine" setting + Google API key already cover the
+//! local-vs-cloud choice this app cares about.
 
 use koharu_pipeline::{InpaintingModel, OcrModel, PipelineConfig};
+use koharu_translator::{Model, Provider, Translator};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -77,5 +91,45 @@ pub fn set(ocr_model: &str, inpainting_model: &str) -> Result<(), String> {
         "rorem-mixed" => InpaintingModel::RoremMixed(write.processor.rorem_mixed.clone().unwrap_or_default()),
         other => return Err(format!("unknown inpainting model '{other}'")),
     };
+    write.save().map_err(|e| e.to_string())
+}
+
+/// Lists only the locally-run translation models (filters out Koharu's
+/// cloud providers -- see this module's doc comment). Each `Model` carries
+/// its own `quantizations`, each flagged `downloaded` based on whether
+/// that file already exists on disk -- the UI uses this to show the user
+/// what picking a given option will or won't trigger a fresh download for.
+pub async fn list_translation_models() -> Result<Vec<Model>, String> {
+    let models = Translator::models().await.map_err(|e| e.to_string())?;
+    Ok(models.into_iter().filter(|m| m.provider == Provider::Local).collect())
+}
+
+#[derive(Serialize)]
+pub struct TranslationSelection {
+    pub model: Option<String>,
+    pub quantization: Option<String>,
+}
+
+pub fn get_translation_selection() -> Result<TranslationSelection, String> {
+    let config = PipelineConfig::load().map_err(|e| e.to_string())?;
+    let value = config.read().map_err(|e| e.to_string())?;
+    Ok(TranslationSelection {
+        model: value.translation.model.model.clone(),
+        quantization: value.translation.model.quantization.clone(),
+    })
+}
+
+/// Switches the translation model/quantization, keeping the provider
+/// pinned to Local (this app doesn't expose Koharu's cloud providers --
+/// see this module's doc comment) and leaving the existing vision/
+/// reasoning toggles untouched, so switching models doesn't silently
+/// reset preferences the user set some other way (e.g. the real Koharu
+/// app, if installed).
+pub fn set_translation_model(model_id: &str, quantization: Option<&str>) -> Result<(), String> {
+    let config = PipelineConfig::load().map_err(|e| e.to_string())?;
+    let mut write = config.write().map_err(|e| e.to_string())?;
+    write.translation.model.provider = Provider::Local;
+    write.translation.model.model = Some(model_id.to_owned());
+    write.translation.model.quantization = quantization.map(ToOwned::to_owned);
     write.save().map_err(|e| e.to_string())
 }

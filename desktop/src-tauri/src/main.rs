@@ -61,6 +61,21 @@ fn set_pipeline_models(ocr: String, inpainting: String) -> Result<(), String> {
     engines::koharu_models::set(&ocr, &inpainting)
 }
 
+#[tauri::command]
+async fn get_translation_models() -> Result<Vec<koharu_translator::Model>, String> {
+    engines::koharu_models::list_translation_models().await
+}
+
+#[tauri::command]
+fn get_translation_selection() -> Result<engines::koharu_models::TranslationSelection, String> {
+    engines::koharu_models::get_translation_selection()
+}
+
+#[tauri::command]
+fn set_translation_model(model: String, quantization: Option<String>) -> Result<(), String> {
+    engines::koharu_models::set_translation_model(&model, quantization.as_deref())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -71,7 +86,10 @@ fn main() {
             get_google_usage,
             get_resource_usage,
             get_pipeline_models,
-            set_pipeline_models
+            set_pipeline_models,
+            get_translation_models,
+            get_translation_selection,
+            set_translation_model
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

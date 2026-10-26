@@ -59,10 +59,26 @@
           <option value="flux2-klein">Flux.2 Klein (generative)</option>
           <option value="rorem-mixed">RoRem Mixed (generative)</option>
         </select>
+
+        <label for="translationModel">Translation model (local, offline)</label>
+        <select id="translationModel">
+          <option value="">Loading…</option>
+        </select>
+
+        <label for="translationQuantization">Quantization</label>
+        <select id="translationQuantization"></select>
         <p class="hint">
-          These come straight from Koharu's own engine and are saved to its shared config file
+          A smaller/more-quantized model is faster and uses less RAM but may translate less
+          accurately; a larger one is slower but more capable. Picking a quantization not already
+          downloaded (marked below) triggers a one-time download on the next job.
+        </p>
+
+        <p class="hint">
+          These all come straight from Koharu's own engine and are saved to its shared config file
           (<code>~/.koharu/config.toml</code>) — the same one its own desktop app uses, if you ever install
-          it. Takes effect on the next translation job, no restart needed.
+          it. Takes effect on the next translation job, no restart needed. Koharu also supports several
+          cloud translation providers (OpenRouter, Claude, Grok, etc.) — not exposed here, since this
+          app's own Engine/Google settings above already cover local-vs-cloud.
         </p>
         <button type="button" id="savePipelineModelsBtn">Save model selection</button>
         <div id="pipelineModelsFeedback"></div>
