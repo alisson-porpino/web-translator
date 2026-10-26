@@ -169,6 +169,17 @@ export default defineBackground(() => {
       if (sender.tab?.id !== undefined) void stopTabTranslations(sender.tab.id);
       return undefined;
     }
+    if (msg.type === 'GET_RESOURCE_USAGE') {
+      // Relayed through here (rather than a direct fetch from
+      // content/index.ts, which runs injected into arbitrary pages and
+      // could be blocked by a strict site CSP) the same way job creation
+      // already is -- see createJob above.
+      return getSettings().then(async (settings) => {
+        const res = await fetch(`${settings.serverUrl}/api/resources`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
+    }
     return undefined;
   });
 

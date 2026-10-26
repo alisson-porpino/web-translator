@@ -27,6 +27,12 @@ function isLikelyBubbleCrop(w: number, h: number): boolean {
   return w >= 180 && h >= 80 && w <= 420 && h <= 420 && w * h >= 40_000;
 }
 function isCandidateImage(img: HTMLImageElement): boolean {
+  // Our own injected translated-image overlay (see buildOverlay below) --
+  // without this, it's a brand-new <img> node scanForCandidates has never
+  // seen before, at essentially the same size as the original it's
+  // covering, so it kept getting offered right back as a "new" candidate
+  // on the very next manual scan.
+  if (img.classList.contains('mwt-overlay')) return false;
   const src = img.currentSrc || img.src;
   // SVGs are vector icons/logos/payment badges, never scanned manga pages --
   // without this, large inline SVGs (e.g. MangaDex's footer payment icons)
@@ -152,6 +158,8 @@ let reviewSelectAllBtn: HTMLButtonElement | null = null;
 let reviewCancelBtn: HTMLButtonElement | null = null;
 let reviewListEl: HTMLDivElement | null = null;
 let reviewHideTimer: ReturnType<typeof setTimeout> | null = null;
+let reviewResourceEl: HTMLDivElement | null = null;
+let reviewResourcePoll: ReturnType<typeof setInterval> | null = null;
 
 function ensureReviewPanel(): void {
   if (reviewPanel) return;
@@ -187,6 +195,11 @@ function ensureReviewPanel(): void {
   reviewCancelBtn.addEventListener('click', cancelOrStopReview);
   header.appendChild(reviewCancelBtn);
   reviewPanel.appendChild(header);
+
+  reviewResourceEl = document.createElement('div');
+  reviewResourceEl.className = 'mwt-review-panel__resources';
+  reviewResourceEl.hidden = true;
+  reviewPanel.appendChild(reviewResourceEl);
 
   reviewListEl = document.createElement('div');
   reviewListEl.className = 'mwt-review-panel__list';
@@ -259,9 +272,47 @@ function buildReviewRow(img: HTMLImageElement): ReviewRow {
   return row;
 }
 
+interface ResourceUsage {
+  cpuPercent: number;
+  usedMemoryMb: number;
+  totalMemoryMb: number;
+  maxCpuThreads: number;
+  maxMemoryMb: number;
+}
+
+// Live CPU/RAM next to the translation progress itself -- the extension
+// used to only show this in the popup, separate from wherever the actual
+// progress was, which meant closing the popup (the normal thing to do
+// once a page-wide translation is running) lost sight of it entirely.
+async function pollReviewResources(): Promise<void> {
+  if (!reviewResourceEl) return;
+  try {
+    const u = (await browser.runtime.sendMessage({ type: 'GET_RESOURCE_USAGE' })) as ResourceUsage;
+    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads} threads)` : '';
+    const ramCap = u.maxMemoryMb > 0 ? ` / cap ${u.maxMemoryMb}MB` : '';
+    reviewResourceEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · RAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}`;
+  } catch {
+    reviewResourceEl.textContent = 'Desktop app resources: unavailable';
+  }
+}
+
+function setReviewResourcePolling(active: boolean): void {
+  if (!reviewResourceEl) return;
+  reviewResourceEl.hidden = !active;
+  if (active) {
+    if (reviewResourcePoll) return;
+    void pollReviewResources();
+    reviewResourcePoll = setInterval(pollReviewResources, 2000);
+  } else if (reviewResourcePoll) {
+    clearInterval(reviewResourcePoll);
+    reviewResourcePoll = null;
+  }
+}
+
 function updateReviewHeader(): void {
   if (!reviewHeaderText || !reviewConfirmBtn || !reviewCancelBtn || !reviewSelectAllBtn) return;
   const translating = reviewRows.some((r) => r.state !== 'review');
+  setReviewResourcePolling(translating);
   if (translating) {
     const done = reviewRows.filter((r) => r.state !== 'queued' && r.state !== 'translating').length;
     const allDone = done >= reviewRows.length;
@@ -319,9 +370,15 @@ function cancelReview(): void {
 function confirmReview(): void {
   const included = reviewRows.filter((r) => r.include);
   const excluded = reviewRows.filter((r) => !r.include);
-  // Excluded rows stay in `processed` (added back in addReviewCandidate) --
-  // an explicit exclusion is remembered for the rest of this page session
-  // instead of being re-offered on the next manual scan.
+  // Excluded rows are just "not this time" -- undo the add-at-review-time
+  // `processed` marking so the next manual scan offers them again. This
+  // used to leave them in `processed` permanently (meant for "this is a
+  // false positive, stop suggesting it"), but that also fired for the
+  // ordinary case of only wanting to translate a few images now and the
+  // rest later -- a second "Translate this page now" came back with
+  // nothing, since every previously-unchecked image was silently skipped
+  // before scanForCandidates even re-evaluated it.
+  for (const row of excluded) processed.delete(row.img);
   for (const row of excluded) row.rowEl.remove();
 
   reviewRows = included;
@@ -345,6 +402,7 @@ function confirmReview(): void {
         reviewListEl!.innerHTML = '';
         reviewRows = [];
         reviewPanelActive = false;
+        setReviewResourcePolling(false);
       }, 4000);
     }
   };
