@@ -1,6 +1,6 @@
 [package]
 name = "manga-web-translator"
-version = "0.1.0"
+version = "1.0.0"
 description = "Local background server + settings UI for the Manga Web Translator browser extension"
 edition = "2021"
 
