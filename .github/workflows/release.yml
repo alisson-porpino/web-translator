@@ -20,7 +20,15 @@ jobs:
         include:
           - platform: macos-latest
             args: ""
-          - platform: ubuntu-22.04
+          # ubuntu-22.04 failed to link: rust-lld reported undefined symbols
+          # (__isoc23_strtol/strtoull/strtoll, a libstdc++ basic_string
+          # cold-path symbol) that only exist in glibc >=2.38/GCC 13+'s
+          # runtime libs -- newer than what that image's libstdc++.so/
+          # libc.so actually ship, even though some dependency in the
+          # Koharu native stack is built expecting them. ubuntu-24.04 ships
+          # a matched (newer) glibc+libstdc++ pair, which resolves it.
+          # Confirmed empirically on 2026-10-26's CI dry-run.
+          - platform: ubuntu-24.04
             args: ""
           - platform: windows-latest
             args: ""
@@ -30,7 +38,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
