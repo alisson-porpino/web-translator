@@ -168,6 +168,27 @@ h1 {
   flex-shrink: 0;
 }
 
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.path-row input {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.path-row button {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .manage-overlay {
   position: fixed;
   inset: 0;

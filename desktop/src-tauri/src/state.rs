@@ -40,10 +40,17 @@ pub struct AppState {
     pub local_engine_slots: Arc<Semaphore>,
     /// Job IDs the user asked to stop (DELETE /api/jobs/:id). A job not
     /// yet past the local_engine_slots wait checks this and bails out
-    /// instead of starting real work; one already mid-inference can't be
-    /// safely interrupted (it's a synchronous call inside
-    /// spawn_blocking), so it still runs to completion in the background
-    /// -- its result is simply never shown, since the client has already
-    /// stopped polling for it.
+    /// instead of starting real work.
     pub cancelled_jobs: Arc<Mutex<HashSet<String>>>,
+    /// Koharu's own cancellation handle (`koharu_pipeline::StopToken`) for
+    /// each job currently running the "local" (Koharu) engine, keyed by
+    /// job id. `cancel_job` calls `.stop()` on this (in addition to
+    /// recording the job in `cancelled_jobs` above) so a job already
+    /// mid-pipeline can actually be interrupted instead of always running
+    /// to completion in the background and holding `local_engine_slots`'
+    /// one permit hostage until it finishes on its own -- see
+    /// engines/koharu_engine.rs's `translate` for where this gets read.
+    /// Koharu checks it at each pipeline stage boundary, not mid-stage, so
+    /// this isn't instant, but it's a real interrupt now instead of never.
+    pub running_stops: Arc<Mutex<HashMap<String, koharu_pipeline::StopToken>>>,
 }

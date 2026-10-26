@@ -12,8 +12,6 @@ use imageproc::drawing::{draw_filled_ellipse_mut, draw_filled_rect_mut, draw_tex
 use imageproc::rect::Rect;
 use std::sync::OnceLock;
 
-use super::inpaint::LamaInpainter;
-
 // Bold, not Regular: comic/manga lettering is conventionally bold and
 // uppercase -- this alone goes a long way toward not looking like plain
 // body text pasted over art. This bundled font is a deliberately generic,
@@ -158,7 +156,7 @@ pub fn load_font_stack(paths: &[String]) -> Vec<FontArc> {
 /// drawing both just garbles two translations on top of each other.
 const DUPLICATE_OVERLAP_RATIO: f32 = 0.3;
 
-pub fn redraw_regions(image: &mut RgbaImage, regions: &[TextRegion], fonts: &[FontArc], inpainter: Option<&LamaInpainter>) {
+pub fn redraw_regions(image: &mut RgbaImage, regions: &[TextRegion], fonts: &[FontArc]) {
     let (img_w, img_h) = image.dimensions();
     // Tight (unpadded) rects of every region we've decided to draw, kept so
     // later regions' erase padding can be clamped away from them -- without
@@ -183,29 +181,20 @@ pub fn redraw_regions(image: &mut RgbaImage, regions: &[TextRegion], fonts: &[Fo
         let (ex, ey, ew, eh) = pad_rect_clamped((x, y, w, h), &accepted, img_w, img_h, ERASE_PADDING_RATIO);
         accepted.push((x, y, w, h));
 
-        // Real background reconstruction when a (downloaded, optional)
-        // inpainting model is available -- a plain color/ellipse fill
-        // otherwise. Reconstruction already produces the right shape
-        // (bubble outline and all) on its own, since it's inferred from
-        // genuine surrounding context rather than approximated as an
-        // ellipse, so there's nothing round-vs-rect-specific left to do
-        // once it succeeds.
-        let inpainted = inpainter.and_then(|lama| lama.reconstruct(image, ex, ey, ew, eh).ok());
-        let used_inpainting = if let Some(patch) = &inpainted {
-            image::imageops::replace(image, patch, ex as i64, ey as i64);
-            true
+        // Flat color/ellipse fill -- this module's only remaining caller
+        // (google.rs) has no inpainting model of its own to reconstruct a
+        // real background with (that was the old local engine's job,
+        // retired in favor of Koharu's own pipeline -- see
+        // specs/DIRETRIZES.md's "Migração em andamento" section; this
+        // path is unrelated to that pipeline and still needed for the
+        // Google/Gemini fallback engine, which only returns OCR text +
+        // translation, never a composited image).
+        let fill = sample_fill_color(image, ex, ey, ew, eh);
+        if region.is_round {
+            let center = (ex as i32 + ew as i32 / 2, ey as i32 + eh as i32 / 2);
+            draw_filled_ellipse_mut(image, center, (ew / 2) as i32, (eh / 2) as i32, fill);
         } else {
-            false
-        };
-
-        if !used_inpainting {
-            let fill = sample_fill_color(image, ex, ey, ew, eh);
-            if region.is_round {
-                let center = (ex as i32 + ew as i32 / 2, ey as i32 + eh as i32 / 2);
-                draw_filled_ellipse_mut(image, center, (ew / 2) as i32, (eh / 2) as i32, fill);
-            } else {
-                draw_filled_rect_mut(image, Rect::at(ex as i32, ey as i32).of_size(ew, eh), fill);
-            }
+            draw_filled_rect_mut(image, Rect::at(ex as i32, ey as i32).of_size(ew, eh), fill);
         }
 
         // Text contrast is decided from whatever's actually under it now
@@ -517,7 +506,7 @@ mod tests {
         ];
 
         let fonts = load_font_stack(&[]);
-        redraw_regions(&mut img, &regions, &fonts, None);
+        redraw_regions(&mut img, &regions, &fonts);
 
         let out_path = std::env::var("MWT_TEST_OUT").unwrap_or_else(|_| "/tmp/mwt_compose_test.png".into());
         img.save(&out_path).expect("save test output");
@@ -534,7 +523,7 @@ mod tests {
         let region =
             TextRegion { x: 150, y: 150, width: 40, height: 60, translated_text: "THERE IS NO ONE ON THE DAY OF IKEA SOMETHING".into(), is_round: false };
         let fonts = load_font_stack(&[]);
-        redraw_regions(&mut img, std::slice::from_ref(&region), &fonts, None);
+        redraw_regions(&mut img, std::slice::from_ref(&region), &fonts);
 
         // Generous margin beyond the padded erase box -- anything further
         // out than this must still be pure white.
@@ -609,7 +598,7 @@ mod tests {
             is_round: false,
         };
         let fonts = load_font_stack(&[]);
-        redraw_regions(&mut img, std::slice::from_ref(&region), &fonts, None);
+        redraw_regions(&mut img, std::slice::from_ref(&region), &fonts);
 
         if let Ok(out_path) = std::env::var("MWT_TEST_OUT") {
             img.save(&out_path).expect("save test output");

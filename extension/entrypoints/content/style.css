@@ -86,3 +86,163 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* Flashed on an image's wrapper when a review-panel row is clicked, so the
+   page's scrollIntoView has an obvious visual target to land on. Reuses
+   the same hue as .mwt-border--pending for visual consistency. */
+.mwt-highlight-flash {
+  outline: 4px solid rgba(251, 146, 60, 0.95) !important;
+  outline-offset: -2px !important;
+  transition: outline-color 0.3s ease;
+}
+
+.mwt-review-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  width: 320px;
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 20, 22, 0.95);
+  color: #fff;
+  font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+/* See specs/DIRETRIZES.md's known-pitfalls list: a `[hidden]` element with
+   its own `display` rule needs this explicit override, or the author rule
+   above wins the specificity tie against the browser's default
+   `[hidden] { display: none }` and `.hidden = true` silently does nothing. */
+.mwt-review-panel[hidden] {
+  display: none;
+}
+
+.mwt-review-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mwt-review-panel__header span {
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mwt-review-panel__confirm,
+.mwt-review-panel__cancel,
+.mwt-review-panel__select-all {
+  font: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mwt-review-panel__select-all {
+  color: #ddd;
+  background: transparent;
+  text-decoration: underline;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.mwt-review-panel__select-all:hover {
+  color: #fff;
+}
+
+.mwt-review-panel__confirm {
+  color: #fff;
+  background: rgba(34, 197, 94, 0.9);
+}
+
+.mwt-review-panel__confirm:hover {
+  background: rgba(34, 197, 94, 1);
+}
+
+.mwt-review-panel__confirm:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mwt-review-panel__cancel {
+  color: #ddd;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mwt-review-panel__cancel:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mwt-review-panel__list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.mwt-review-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mwt-review-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mwt-review-row__checkbox {
+  flex: none;
+  cursor: pointer;
+}
+
+.mwt-review-row__thumb {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mwt-review-row__caption {
+  flex: 1;
+  color: #bbb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mwt-review-row__status {
+  flex: none;
+  font-weight: 600;
+}
+
+.mwt-review-row__status--queued,
+.mwt-review-row__status--translating {
+  color: #fbbf5a;
+}
+
+.mwt-review-row__status--done {
+  color: #4ade80;
+}
+
+.mwt-review-row__status--error {
+  color: #f87171;
+}
+
+.mwt-review-row__status--cancelled {
+  color: #9a9a9a;
+}

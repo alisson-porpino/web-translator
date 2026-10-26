@@ -3,7 +3,6 @@
 mod engines;
 mod http_server;
 mod jobs;
-mod models;
 mod resource_limits;
 mod resource_usage;
 mod settings;
@@ -52,32 +51,15 @@ fn get_resource_usage(app: tauri::AppHandle) -> resource_usage::ResourceUsage {
     resource_usage::snapshot(&settings::load(&app))
 }
 
-#[tauri::command]
-fn get_model_catalog(app: tauri::AppHandle) -> Vec<models::CategoryStatus> {
-    models::catalog_status(&app)
-}
-
-#[tauri::command]
-async fn download_model_option(app: tauri::AppHandle, option_id: String) -> Result<(), String> {
-    models::download_option(app, option_id).await
-}
-
-#[tauri::command]
-fn delete_model_option(app: tauri::AppHandle, option_id: String) -> Result<(), String> {
-    models::delete_option(&app, &option_id)
-}
-
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
             get_status,
             get_google_usage,
-            get_resource_usage,
-            get_model_catalog,
-            download_model_option,
-            delete_model_option
+            get_resource_usage
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -92,6 +74,7 @@ fn main() {
                 google_usage: Arc::new(UsageTracker::load(&app_handle)),
                 local_engine_slots: Arc::new(tokio::sync::Semaphore::new(1)),
                 cancelled_jobs: Arc::new(Mutex::new(std::collections::HashSet::new())),
+                running_stops: Arc::new(Mutex::new(HashMap::new())),
             };
             app.manage(state.clone());
 

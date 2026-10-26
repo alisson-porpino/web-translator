@@ -41,17 +41,37 @@ pub fn create_job(state: AppState, req: CreateJobRequest) -> String {
 /// Marks a job cancelled. Returns false if the job id is unknown (already
 /// finished and nobody's holding a reference anymore, or never existed).
 ///
-/// A job not yet past its `local_engine_slots` wait sees this and bails
-/// out before doing any real work. One already mid-inference can't be
-/// safely interrupted -- it's a synchronous call inside
-/// `spawn_blocking` -- so it keeps running in the background; its result
-/// is simply never surfaced, since the extension has already stopped
-/// polling for it by the time it finishes.
+/// A job not yet past its `local_engine_slots` wait sees `cancelled_jobs`
+/// and bails out before doing any real work. One already mid-pipeline gets
+/// a real interrupt too, via `running_stops`' `StopToken` (see
+/// state.rs's docs on that field and engines/koharu_engine.rs) -- not
+/// instant (Koharu checks it between pipeline stages, not mid-stage), but
+/// a real interrupt now instead of always running to completion in the
+/// background and holding `local_engine_slots`' one permit hostage until
+/// it finishes on its own.
 pub fn cancel_job(state: &AppState, job_id: &str) -> bool {
-    if !state.jobs.lock().unwrap().contains_key(job_id) {
+    // A job that already reached a terminal state (succeeded/failed/
+    // cancelled -- e.g. it finished naturally in the gap between the
+    // client deciding to cancel and this call landing) keeps that real
+    // outcome. Without this check, cancelling a job that already
+    // succeeded silently flipped its status backward to "cancelled",
+    // hiding a result that's sitting right there in the cache -- found
+    // 2026-10-25 testing the running_stops interrupt above against a job
+    // that turned out to finish before the cancel request arrived.
+    let already_terminal = state
+        .jobs
+        .lock()
+        .unwrap()
+        .get(job_id)
+        .map(|s| matches!(s.status.as_str(), "succeeded" | "failed" | "cancelled"))
+        .unwrap_or(true); // unwrap_or(true): unknown id, nothing to cancel either way
+    if already_terminal {
         return false;
     }
     state.cancelled_jobs.lock().unwrap().insert(job_id.to_string());
+    if let Some(stop) = state.running_stops.lock().unwrap().get(job_id) {
+        stop.stop();
+    }
     set_status(state, job_id, JobStatus { status: "cancelled".into(), ..Default::default() });
     true
 }
@@ -147,34 +167,32 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
     let app_settings = settings::load(&state.app_handle);
     // Keyed on engine_preference + a version tag for the local pipeline
     // (bumped whenever its models/behavior change materially -- see
-    // engines::local_pipeline::PIPELINE_VERSION) so switching engines or
+    // engines::koharu_engine::ENGINE_VERSION) so switching engines or
     // upgrading the local models can never silently serve a stale result
     // from a previous engine/model generation. Pure image-hash keying
     // caused exactly that confusion once already: re-testing the same
     // page after swapping the local translation model kept returning the
     // old model's cached output.
-    // Also folds in detection_score_threshold and the three per-stage
-    // catalog selections (ocr/inpainting/translation_model). This matters
-    // now that a stage can have more than one selectable option
-    // (models.rs's catalog): PIPELINE_VERSION alone only changes when the
-    // *code* changes, not when the user picks a different already-shipped
-    // model for the same stage -- without these in the key, translating
-    // the same image twice with two different selected translation models
-    // would silently serve the first model's cached result for the
-    // second, exactly the stale-cache bug this whole key format exists to
-    // prevent. Unaffected by the engine being "google" for this job: the
-    // fields are cheap to include and keep the key stable regardless of
-    // which engine ends up used.
+    //
+    // ENGINE_VERSION ("koharu-v1") replaced the old engine's
+    // PIPELINE_VERSION ("v7-inpaint-coreml-fix") here on 2026-10-24, when
+    // this app's local engine switched from its own onnxruntime +
+    // llama-cpp-2 pipeline to Koharu's (see specs/DIRETRIZES.md's
+    // "Migração em andamento" section) -- a different tag namespace
+    // entirely, since these are two different engines, not successive
+    // versions of the same one; any filename under the old tag is from
+    // the retired engine and must never be matched again.
+    // Also folds in detection_score_threshold (only affects the Google
+    // engine's region detection -- the Koharu engine does its own
+    // detection, unaffected by this setting) so changing it can't
+    // silently serve a stale result from before the change either.
     let cache_filename = format!(
-        "{}_{}_{}_{}_{:.2}_{}_{}_{}.png",
+        "{}_{}_{}_{}_{:.2}.png",
         sha256_hex,
         req.target_lang,
         app_settings.engine_preference,
-        engines::local_pipeline::PIPELINE_VERSION,
+        engines::koharu_engine::ENGINE_VERSION,
         app_settings.detection_score_threshold,
-        app_settings.ocr_model,
-        app_settings.inpainting_model,
-        app_settings.translation_model
     );
     let cache_path = state.cache_dir.join(&cache_filename);
 
@@ -213,7 +231,17 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
                     return;
                 }
                 set_status(&state, &job_id, JobStatus { status: "processing".into(), ..Default::default() });
-                engines::local_pipeline::translate(state.app_handle.clone(), image_bytes.clone(), &req.target_lang).await
+                let stop = koharu_pipeline::StopToken::default();
+                state.running_stops.lock().unwrap().insert(job_id.clone(), stop.clone());
+                let result = engines::koharu_engine::translate(
+                    state.app_handle.clone(),
+                    image_bytes.clone(),
+                    &req.target_lang,
+                    stop,
+                )
+                .await;
+                state.running_stops.lock().unwrap().remove(&job_id);
+                result
             }
             "google" => {
                 engines::google::translate(
@@ -247,6 +275,15 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
             }
             Err(err) => last_error = Some(err),
         }
+    }
+
+    // A job stopped mid-pipeline (see running_stops above) surfaces here as
+    // a plain Err from translate() like any other failure -- without this
+    // check, the "failed" status set below would overwrite the "cancelled"
+    // status cancel_job already set, and the extension would show the
+    // wrong outcome for a job the user explicitly stopped.
+    if is_cancelled(&state, &job_id) {
+        return;
     }
 
     let err = last_error.unwrap_or_else(|| EngineError::new("TRANSLATION_FAILED", "All configured engines failed."));

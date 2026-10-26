@@ -2,10 +2,13 @@
 //! the desktop settings window and the browser extension's popup poll
 //! this). Separate from resource_limits.rs on purpose: that module
 //! enforces the user's configured caps, this one just reports what's
-//! actually happening right now -- no VRAM number here, because unlike
-//! CPU/RAM there's no cross-platform OS API to read actual GPU memory
-//! use (see resource_limits::gpu_layers_for_budget's docs); the VRAM
-//! field below is the user's configured *budget*, not a live reading.
+//! actually happening right now. Covers the whole process (both the
+//! Google engine's local ONNX detector and the Koharu engine's own
+//! model usage) -- no VRAM number, since there's no cross-platform OS
+//! API to read actual GPU memory use; Koharu's own pipeline exposes a
+//! richer resource snapshot of its own (`Pipeline::subscribe_resources`)
+//! that could replace this for the Koharu engine specifically, not yet
+//! wired up here.
 
 use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
@@ -34,7 +37,6 @@ pub struct ResourceUsage {
     /// needs without a second request.
     pub max_cpu_threads: u32,
     pub max_memory_mb: u32,
-    pub max_vram_mb: u32,
 }
 
 pub fn snapshot(settings: &crate::settings::Settings) -> ResourceUsage {
@@ -47,6 +49,5 @@ pub fn snapshot(settings: &crate::settings::Settings) -> ResourceUsage {
         total_memory_mb: sys.total_memory() / 1024 / 1024,
         max_cpu_threads: settings.max_cpu_threads,
         max_memory_mb: settings.max_memory_mb,
-        max_vram_mb: settings.max_vram_mb,
     }
 }

@@ -79,6 +79,10 @@ function ensureProgressPanel(): void {
 }
 
 function updateProgressPanel(): void {
+  // The review panel shows its own per-row + header progress once a
+  // manual review batch is confirmed -- this simpler text+stop panel
+  // would just be a redundant second status line in that case.
+  if (reviewPanelActive) return;
   if (totalQueued === 0) return;
   if (hidePanelTimer) {
     clearTimeout(hidePanelTimer);
@@ -105,6 +109,252 @@ function updateProgressPanel(): void {
   }
 }
 
+// --- Review panel (manual scan only) -----------------------------------
+// "Translate this page now" collects candidates here instead of enqueueing
+// them immediately -- shows a panel with a thumbnail + checkbox per
+// candidate, lets the user exclude false positives from the detection
+// heuristic *before* any backend job is created for them, and lets
+// clicking a row scroll the page to that image so it can be checked in
+// context. Auto-scan (enabledOrigins) and the right-click single-image
+// action are untouched -- both already are an explicit, deliberate choice
+// (opting a whole site in, or picking one image), so there's nothing to
+// review there.
+type ReviewRowState = 'review' | 'queued' | 'translating' | 'done' | 'error' | 'cancelled';
+interface ReviewRow {
+  img: HTMLImageElement;
+  include: boolean;
+  state: ReviewRowState;
+  rowEl: HTMLDivElement;
+  checkboxEl: HTMLInputElement;
+  statusEl: HTMLSpanElement;
+}
+let reviewRows: ReviewRow[] = [];
+// Rows actively translating/queued after confirm -- pumpTranslationQueue
+// looks images up here to update their row's live status without needing
+// any change to translateImage's own signature (it reads the same
+// mwt-border--* wrapper classes translateImage already sets).
+const activeReviewRows = new Map<HTMLImageElement, ReviewRow>();
+let reviewPanelActive = false;
+let reviewPanel: HTMLDivElement | null = null;
+let reviewHeaderText: HTMLSpanElement | null = null;
+let reviewConfirmBtn: HTMLButtonElement | null = null;
+let reviewSelectAllBtn: HTMLButtonElement | null = null;
+// Doubles as "Cancel" (pre-confirm: discard the review batch, translate
+// nothing) and "Stop" (post-confirm: same tab-wide stop the old simple
+// progress panel's button always did) -- see updateReviewHeader, which
+// relabels it, and cancelOrStopReview below, which dispatches by phase.
+// Found 2026-10-25: hiding this unconditionally once translation started
+// (matching the confirm button, which really should disappear then) left
+// a batch with no way to stop at all, since the plain progress panel's
+// own Stop button is suppressed whenever the review panel is active (see
+// updateProgressPanel's reviewPanelActive guard) -- there was nothing
+// left on screen to click.
+let reviewCancelBtn: HTMLButtonElement | null = null;
+let reviewListEl: HTMLDivElement | null = null;
+let reviewHideTimer: ReturnType<typeof setTimeout> | null = null;
+
+function ensureReviewPanel(): void {
+  if (reviewPanel) return;
+  reviewPanel = document.createElement('div');
+  reviewPanel.className = 'mwt-review-panel';
+  reviewPanel.hidden = true;
+
+  const header = document.createElement('div');
+  header.className = 'mwt-review-panel__header';
+  reviewHeaderText = document.createElement('span');
+  header.appendChild(reviewHeaderText);
+  reviewSelectAllBtn = document.createElement('button');
+  reviewSelectAllBtn.type = 'button';
+  reviewSelectAllBtn.className = 'mwt-review-panel__select-all';
+  reviewSelectAllBtn.title = 'Select/deselect all';
+  reviewSelectAllBtn.addEventListener('click', () => {
+    const next = !reviewRows.every((r) => r.include);
+    for (const row of reviewRows) {
+      row.include = next;
+      row.checkboxEl.checked = next;
+    }
+    updateReviewHeader();
+  });
+  header.appendChild(reviewSelectAllBtn);
+  reviewConfirmBtn = document.createElement('button');
+  reviewConfirmBtn.type = 'button';
+  reviewConfirmBtn.className = 'mwt-review-panel__confirm';
+  reviewConfirmBtn.addEventListener('click', confirmReview);
+  header.appendChild(reviewConfirmBtn);
+  reviewCancelBtn = document.createElement('button');
+  reviewCancelBtn.type = 'button';
+  reviewCancelBtn.className = 'mwt-review-panel__cancel';
+  reviewCancelBtn.addEventListener('click', cancelOrStopReview);
+  header.appendChild(reviewCancelBtn);
+  reviewPanel.appendChild(header);
+
+  reviewListEl = document.createElement('div');
+  reviewListEl.className = 'mwt-review-panel__list';
+  reviewPanel.appendChild(reviewListEl);
+
+  document.documentElement.appendChild(reviewPanel);
+}
+
+function scrollToImage(img: HTMLImageElement): void {
+  img.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const target = img.parentElement?.classList.contains('mwt-wrapper') ? img.parentElement : img;
+  target.classList.add('mwt-highlight-flash');
+  setTimeout(() => target.classList.remove('mwt-highlight-flash'), 1500);
+}
+
+const ROW_STATUS_LABEL: Record<Exclude<ReviewRowState, 'review'>, string> = {
+  queued: 'Queued…',
+  translating: 'Translating…',
+  done: 'Done',
+  error: 'Failed',
+  cancelled: 'Cancelled',
+};
+
+function updateRowStatusUI(row: ReviewRow): void {
+  if (row.state === 'review') return;
+  row.checkboxEl.style.visibility = 'hidden';
+  row.statusEl.hidden = false;
+  row.statusEl.textContent = ROW_STATUS_LABEL[row.state];
+  row.statusEl.className = `mwt-review-row__status mwt-review-row__status--${row.state}`;
+}
+
+function buildReviewRow(img: HTMLImageElement): ReviewRow {
+  const rowEl = document.createElement('div');
+  rowEl.className = 'mwt-review-row';
+
+  const checkboxEl = document.createElement('input');
+  checkboxEl.type = 'checkbox';
+  checkboxEl.checked = true;
+  checkboxEl.className = 'mwt-review-row__checkbox';
+  checkboxEl.addEventListener('click', (e) => e.stopPropagation());
+  checkboxEl.addEventListener('change', () => {
+    row.include = checkboxEl.checked;
+    // Without this, the confirm button's count/enabled state only ever
+    // refreshed on the "All"/"None" button's own click -- toggling one
+    // checkbox by hand left it frozen wherever that last bulk toggle set
+    // it (e.g. stuck disabled at "Translate (0)" after "None" followed by
+    // re-checking a single row).
+    updateReviewHeader();
+  });
+  rowEl.appendChild(checkboxEl);
+
+  const thumb = document.createElement('img');
+  thumb.className = 'mwt-review-row__thumb';
+  thumb.src = img.currentSrc || img.src;
+  thumb.alt = '';
+  rowEl.appendChild(thumb);
+
+  const caption = document.createElement('span');
+  caption.className = 'mwt-review-row__caption';
+  caption.textContent = `${img.naturalWidth}×${img.naturalHeight}`;
+  rowEl.appendChild(caption);
+
+  const statusEl = document.createElement('span');
+  statusEl.className = 'mwt-review-row__status';
+  statusEl.hidden = true;
+  rowEl.appendChild(statusEl);
+
+  const row: ReviewRow = { img, include: true, state: 'review', rowEl, checkboxEl, statusEl };
+  rowEl.addEventListener('click', () => scrollToImage(img));
+  return row;
+}
+
+function updateReviewHeader(): void {
+  if (!reviewHeaderText || !reviewConfirmBtn || !reviewCancelBtn || !reviewSelectAllBtn) return;
+  const translating = reviewRows.some((r) => r.state !== 'review');
+  if (translating) {
+    const done = reviewRows.filter((r) => r.state !== 'queued' && r.state !== 'translating').length;
+    const allDone = done >= reviewRows.length;
+    reviewHeaderText.textContent = allDone ? `Translated ${done}/${reviewRows.length}.` : `Translating ${done}/${reviewRows.length}…`;
+    reviewConfirmBtn.hidden = true;
+    reviewSelectAllBtn.hidden = true;
+    // Nothing left to stop once every row reached a terminal state.
+    reviewCancelBtn.hidden = allDone;
+    reviewCancelBtn.textContent = 'Stop';
+  } else {
+    const included = reviewRows.filter((r) => r.include).length;
+    reviewHeaderText.textContent = `Found ${reviewRows.length} image(s)`;
+    reviewConfirmBtn.hidden = false;
+    reviewConfirmBtn.textContent = `Translate (${included})`;
+    reviewConfirmBtn.disabled = included === 0;
+    reviewSelectAllBtn.hidden = false;
+    reviewSelectAllBtn.textContent = included === reviewRows.length && reviewRows.length > 0 ? 'None' : 'All';
+    reviewCancelBtn.hidden = false;
+    reviewCancelBtn.textContent = 'Cancel';
+  }
+}
+
+/** Dispatches the one header button by phase -- 'Cancel' (discard the
+ * pending review batch, nothing gets translated) before confirm, 'Stop'
+ * (same tab-wide stop the old simple progress panel's button always did)
+ * after. */
+function cancelOrStopReview(): void {
+  if (reviewRows.some((r) => r.state !== 'review')) {
+    stopAllTranslations();
+  } else {
+    cancelReview();
+  }
+}
+
+function addReviewCandidate(img: HTMLImageElement): void {
+  if (processed.has(img)) return;
+  processed.add(img);
+  ensureReviewPanel();
+  const row = buildReviewRow(img);
+  reviewRows.push(row);
+  reviewListEl!.appendChild(row.rowEl);
+  reviewPanel!.hidden = false;
+  reviewPanelActive = true;
+  updateReviewHeader();
+}
+
+function cancelReview(): void {
+  for (const row of reviewRows) processed.delete(row.img);
+  reviewRows = [];
+  reviewListEl!.innerHTML = '';
+  reviewPanel!.hidden = true;
+  reviewPanelActive = false;
+}
+
+function confirmReview(): void {
+  const included = reviewRows.filter((r) => r.include);
+  const excluded = reviewRows.filter((r) => !r.include);
+  // Excluded rows stay in `processed` (added back in addReviewCandidate) --
+  // an explicit exclusion is remembered for the rest of this page session
+  // instead of being re-offered on the next manual scan.
+  for (const row of excluded) row.rowEl.remove();
+
+  reviewRows = included;
+  for (const row of reviewRows) {
+    row.state = 'queued';
+    updateRowStatusUI(row);
+    activeReviewRows.set(row.img, row);
+    // enqueueTranslation itself re-adds this to `processed` -- undo the
+    // add-at-review-time marking first so it doesn't just no-op there.
+    processed.delete(row.img);
+    enqueueTranslation(row.img);
+  }
+  updateReviewHeader();
+
+  if (reviewHideTimer) clearTimeout(reviewHideTimer);
+  const checkDone = () => {
+    updateReviewHeader();
+    if (reviewRows.every((r) => r.state !== 'queued' && r.state !== 'translating')) {
+      reviewHideTimer = setTimeout(() => {
+        reviewPanel!.hidden = true;
+        reviewListEl!.innerHTML = '';
+        reviewRows = [];
+        reviewPanelActive = false;
+      }, 4000);
+    }
+  };
+  reviewDoneCheck = checkDone;
+}
+// Called from pumpTranslationQueue's completion handler below (defined
+// after this point in the file) -- kept as a reassignable top-level `let`
+// rather than a forward reference so both halves stay simple functions.
+let reviewDoneCheck: (() => void) | null = null;
+
 /** Drops everything not yet started, tells the background script to cancel
  * whatever it's already created jobs for (freeing the backend's queue slot
  * for other tabs too), and marks still-pending images as cancelled rather
@@ -120,8 +370,20 @@ function stopAllTranslations(): void {
       wrapper.classList.add('mwt-border--cancelled');
       wrapper.title = 'Cancelled.';
     }
+    // Still-queued review rows never reach pumpTranslationQueue's own
+    // finally-block status update (that only fires for ones it actually
+    // dequeued) -- update them here instead, or they'd be stuck showing
+    // "Queued…" forever even though nothing is coming for them anymore.
+    const reviewRow = activeReviewRows.get(img);
+    if (reviewRow) {
+      reviewRow.state = 'cancelled';
+      updateRowStatusUI(reviewRow);
+      activeReviewRows.delete(img);
+    }
   }
   updateProgressPanel();
+  updateReviewHeader();
+  reviewDoneCheck?.();
   void browser.runtime.sendMessage({ type: 'STOP_TRANSLATIONS' }).catch((err) => {
     console.error(LOG, 'failed to send STOP_TRANSLATIONS', err);
   });
@@ -317,10 +579,30 @@ function pumpTranslationQueue(): void {
     const img = translationQueue.shift()!;
     runningTranslations++;
     updateProgressPanel();
+    const reviewRow = activeReviewRows.get(img);
+    if (reviewRow) {
+      reviewRow.state = 'translating';
+      updateRowStatusUI(reviewRow);
+      updateReviewHeader();
+    }
     void translateImage(img).finally(() => {
       runningTranslations--;
       totalFinished++;
       updateProgressPanel();
+      if (reviewRow) {
+        // translateImage already recorded the outcome as a CSS class on
+        // the image's wrapper -- read it back instead of threading a
+        // separate callback through translateImage's own signature.
+        const wrapper = img.parentElement;
+        reviewRow.state = wrapper?.classList.contains('mwt-border--error')
+          ? 'error'
+          : wrapper?.classList.contains('mwt-border--cancelled')
+            ? 'cancelled'
+            : 'done';
+        updateRowStatusUI(reviewRow);
+        activeReviewRows.delete(img);
+        reviewDoneCheck?.();
+      }
       pumpTranslationQueue();
     });
   }
@@ -335,7 +617,15 @@ function enqueueTranslation(img: HTMLImageElement): void {
   pumpTranslationQueue();
 }
 
-function scanForCandidates(): void {
+/**
+ * @param mode 'auto' (default) enqueues every match straight away, same as
+ * always -- used by the MutationObserver on enabledOrigins, where the
+ * per-site opt-in already is the user's confirmation. 'manual' (the
+ * "Translate this page now" button/shortcut) instead collects matches into
+ * the review panel so the user can exclude false positives before any job
+ * is created for them.
+ */
+function scanForCandidates(mode: 'auto' | 'manual' = 'auto'): void {
   const images = document.querySelectorAll<HTMLImageElement>('img');
   let candidates = 0;
   for (const img of images) {
@@ -343,7 +633,11 @@ function scanForCandidates(): void {
     const run = () => {
       if (isCandidateImage(img)) {
         candidates++;
-        enqueueTranslation(img);
+        if (mode === 'manual') {
+          addReviewCandidate(img);
+        } else {
+          enqueueTranslation(img);
+        }
       } else {
         console.debug(LOG, 'skipped (too small/odd shape)', {
           src: img.currentSrc || img.src,
@@ -401,7 +695,7 @@ export default defineContentScript({
       const msg = message as { type?: string; srcUrl?: string };
       if (msg?.type === 'TRANSLATE_PAGE_NOW') {
         console.log(LOG, 'manual translate requested for this tab');
-        scanForCandidates();
+        scanForCandidates('manual');
       } else if (msg?.type === 'TRANSLATE_ONE_IMAGE' && msg.srcUrl) {
         const img = [...document.querySelectorAll<HTMLImageElement>('img')].find(
           (el) => el.src === msg.srcUrl || el.currentSrc === msg.srcUrl,
