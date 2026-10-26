@@ -43,6 +43,32 @@
       </fieldset>
 
       <fieldset>
+        <legend>Local engine models (Koharu)</legend>
+        <label for="ocrModel">OCR model</label>
+        <select id="ocrModel">
+          <option value="paddleocr-vl-1.6">PaddleOCR-VL 1.6 (default)</option>
+          <option value="manga-ocr">Manga OCR</option>
+          <option value="baberu-ocr">Baberu OCR</option>
+          <option value="hayai-ocr">Hayai OCR</option>
+        </select>
+
+        <label for="inpaintingModel">Inpainting model</label>
+        <select id="inpaintingModel">
+          <option value="lama">LaMa (default)</option>
+          <option value="aot-inpainting">AOT Inpainting</option>
+          <option value="flux2-klein">Flux.2 Klein (generative)</option>
+          <option value="rorem-mixed">RoRem Mixed (generative)</option>
+        </select>
+        <p class="hint">
+          These come straight from Koharu's own engine and are saved to its shared config file
+          (<code>~/.koharu/config.toml</code>) — the same one its own desktop app uses, if you ever install
+          it. Takes effect on the next translation job, no restart needed.
+        </p>
+        <button type="button" id="savePipelineModelsBtn">Save model selection</button>
+        <div id="pipelineModelsFeedback"></div>
+      </fieldset>
+
+      <fieldset>
         <legend>Google (Gemini)</legend>
         <label for="googleApiKey">API key</label>
         <input id="googleApiKey" type="password" placeholder="Leave empty if you only want local" autocomplete="off" />

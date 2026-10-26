@@ -51,6 +51,16 @@ fn get_resource_usage(app: tauri::AppHandle) -> resource_usage::ResourceUsage {
     resource_usage::snapshot(&settings::load(&app))
 }
 
+#[tauri::command]
+fn get_pipeline_models() -> Result<engines::koharu_models::PipelineModels, String> {
+    engines::koharu_models::get()
+}
+
+#[tauri::command]
+fn set_pipeline_models(ocr: String, inpainting: String) -> Result<(), String> {
+    engines::koharu_models::set(&ocr, &inpainting)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -59,7 +69,9 @@ fn main() {
             save_settings,
             get_status,
             get_google_usage,
-            get_resource_usage
+            get_resource_usage,
+            get_pipeline_models,
+            set_pipeline_models
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

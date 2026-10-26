@@ -13,6 +13,10 @@ const el = {
   maxMemoryMb: document.getElementById('maxMemoryMb'),
   modelsDir: document.getElementById('modelsDir'),
   browseModelsDirBtn: document.getElementById('browseModelsDirBtn'),
+  ocrModel: document.getElementById('ocrModel'),
+  inpaintingModel: document.getElementById('inpaintingModel'),
+  savePipelineModelsBtn: document.getElementById('savePipelineModelsBtn'),
+  pipelineModelsFeedback: document.getElementById('pipelineModelsFeedback'),
   serverAddr: document.getElementById('serverAddr'),
   feedback: document.getElementById('feedback'),
   form: document.getElementById('settingsForm'),
@@ -137,6 +141,32 @@ async function load() {
   applySettings(settings);
 }
 
+async function loadPipelineModels() {
+  try {
+    const models = await invoke('get_pipeline_models');
+    el.ocrModel.value = models.ocr;
+    el.inpaintingModel.value = models.inpainting;
+  } catch (err) {
+    el.pipelineModelsFeedback.classList.add('error');
+    el.pipelineModelsFeedback.textContent = `Could not read Koharu's current model selection: ${err}`;
+  }
+}
+
+el.savePipelineModelsBtn.addEventListener('click', async () => {
+  el.pipelineModelsFeedback.classList.remove('error');
+  el.pipelineModelsFeedback.textContent = 'Saving…';
+  try {
+    await invoke('set_pipeline_models', { ocr: el.ocrModel.value, inpainting: el.inpaintingModel.value });
+    el.pipelineModelsFeedback.textContent = 'Saved. The next translation job will use it.';
+  } catch (err) {
+    el.pipelineModelsFeedback.classList.add('error');
+    el.pipelineModelsFeedback.textContent = `Could not save: ${err}`;
+  }
+  setTimeout(() => {
+    el.pipelineModelsFeedback.textContent = '';
+  }, 3000);
+});
+
 async function refreshUsage() {
   try {
     const { count, cap } = await invoke('get_google_usage');
@@ -177,6 +207,7 @@ el.form.addEventListener('submit', async (e) => {
 });
 
 load();
+loadPipelineModels();
 refreshUsage();
 setInterval(refreshUsage, 5000);
 refreshResourceUsage();

@@ -2,6 +2,7 @@ pub mod compose;
 pub mod detect;
 pub mod google;
 pub mod koharu_engine;
+pub mod koharu_models;
 pub mod ort_env;
 
 #[derive(Debug, Clone)]

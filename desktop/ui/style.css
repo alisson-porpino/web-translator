@@ -387,7 +387,8 @@ button:disabled {
   cursor: default;
 }
 
-#feedback {
+#feedback,
+#pipelineModelsFeedback {
   margin-top: 8px;
   font-size: 12px;
   min-height: 1.2em;
@@ -395,7 +396,8 @@ button:disabled {
   color: var(--ok);
 }
 
-#feedback.error {
+#feedback.error,
+#pipelineModelsFeedback.error {
   color: var(--bad);
 }
 
