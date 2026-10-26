@@ -41,16 +41,16 @@ sysinfo = "0.39"
 async-trait = "0.1"
 anyhow = "1"
 tracing = "0.1"
-koharu-pipeline = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
-koharu-scene = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
-koharu-ml = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
-koharu-config = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
-koharu-translator = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
-koharu-renderer = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
-koharu-rasterizer = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741", features = [
+koharu-pipeline = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
+koharu-scene = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
+koharu-ml = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
+koharu-config = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
+koharu-translator = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
+koharu-renderer = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
+koharu-rasterizer = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300", features = [
     "native",
 ] }
-koharu-runtime = { git = "https://github.com/alisson-porpino/koharu", rev = "af54817f66b4d5bc225ea0cfbbb5bb5a77ad3741" }
+koharu-runtime = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
 tauri-plugin-dialog = "2"
 
 [target.'cfg(unix)'.dependencies]
