@@ -36,6 +36,10 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.4"
+    },
+    "resources": {
+      "resources/extension-chrome.zip": "extension-chrome.zip",
+      "resources/extension-firefox.zip": "extension-firefox.zip"
     }
   }
 }

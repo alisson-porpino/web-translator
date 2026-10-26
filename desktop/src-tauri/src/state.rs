@@ -53,4 +53,19 @@ pub struct AppState {
     /// Koharu checks it at each pipeline stage boundary, not mid-stage, so
     /// this isn't instant, but it's a real interrupt now instead of never.
     pub running_stops: Arc<Mutex<HashMap<String, koharu_pipeline::StopToken>>>,
+    /// The local HTTP server (http_server.rs) the browser extension talks
+    /// to is *not* started automatically on launch -- a native app on this
+    /// machine could already be using the configured port, and binding it
+    /// unconditionally on every startup would fail silently (or steal the
+    /// port from something else) with no way for the user to tell what
+    /// happened. Instead it's started explicitly (the `start_server`
+    /// command) and this holds the running instance's shutdown handle
+    /// (`None` when stopped) so `stop_server`/`get_server_status` have
+    /// something to act on. See main.rs's `start_server`/`stop_server`.
+    pub server: Arc<Mutex<Option<ServerHandle>>>,
+}
+
+pub struct ServerHandle {
+    pub port: u16,
+    pub shutdown: tokio::sync::oneshot::Sender<()>,
 }

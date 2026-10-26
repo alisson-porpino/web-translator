@@ -19,13 +19,22 @@ const el = {
   translationQuantization: document.getElementById('translationQuantization'),
   savePipelineModelsBtn: document.getElementById('savePipelineModelsBtn'),
   pipelineModelsFeedback: document.getElementById('pipelineModelsFeedback'),
-  serverAddr: document.getElementById('serverAddr'),
   feedback: document.getElementById('feedback'),
   form: document.getElementById('settingsForm'),
   usageText: document.getElementById('usageText'),
   usageDot: document.querySelector('#usageStatus .dot'),
   resourceText: document.getElementById('resourceText'),
   resourceDot: document.querySelector('#resourceStatus .dot'),
+  serverDot: document.getElementById('serverDot'),
+  serverStatusText: document.getElementById('serverStatusText'),
+  serverToggleBtn: document.getElementById('serverToggleBtn'),
+  serverError: document.getElementById('serverError'),
+  installChromeBtn: document.getElementById('installChromeBtn'),
+  installFirefoxBtn: document.getElementById('installFirefoxBtn'),
+  extensionInstallFeedback: document.getElementById('extensionInstallFeedback'),
+  extensionInstallSteps: document.getElementById('extensionInstallSteps'),
+  extensionStepChrome: document.getElementById('extensionStepChrome'),
+  extensionStepFirefox: document.getElementById('extensionStepFirefox'),
 };
 
 let currentSettings = null;
@@ -119,7 +128,6 @@ function applySettings(s) {
   el.maxCpuThreads.value = s.maxCpuThreads;
   el.maxMemoryMb.value = s.maxMemoryMb;
   el.modelsDir.value = s.modelsDir || '';
-  el.serverAddr.textContent = `http://127.0.0.1:${s.port}`;
 }
 
 function readSettings() {
@@ -137,6 +145,66 @@ function readSettings() {
     modelsDir: el.modelsDir.value.trim() || null,
   };
 }
+
+// The local server (http_server.rs) never starts on its own -- a native
+// app on this machine could already own the configured port, and
+// silently rebinding it on every launch would fail with no visible
+// feedback. The user starts/stops it explicitly here instead.
+async function refreshServerStatus() {
+  try {
+    const status = await invoke('get_server_status');
+    if (status.running) {
+      el.serverDot.style.background = 'var(--ok)';
+      el.serverStatusText.textContent = `Running on http://127.0.0.1:${status.port}`;
+      el.serverToggleBtn.textContent = 'Stop';
+    } else {
+      el.serverDot.style.background = '#9a9a9a';
+      el.serverStatusText.textContent = 'Server stopped';
+      el.serverToggleBtn.textContent = 'Start';
+    }
+  } catch {
+    el.serverDot.style.background = 'var(--bad)';
+    el.serverStatusText.textContent = 'Server status unavailable';
+  }
+}
+
+el.serverToggleBtn.addEventListener('click', async () => {
+  el.serverError.hidden = true;
+  el.serverToggleBtn.disabled = true;
+  try {
+    const status = await invoke('get_server_status');
+    if (status.running) {
+      await invoke('stop_server');
+    } else {
+      await invoke('start_server');
+    }
+  } catch (err) {
+    el.serverError.hidden = false;
+    el.serverError.textContent = String(err);
+  }
+  el.serverToggleBtn.disabled = false;
+  await refreshServerStatus();
+});
+
+async function installExtension(target) {
+  el.extensionInstallFeedback.classList.remove('error');
+  el.extensionInstallFeedback.textContent = 'Opening…';
+  el.extensionInstallSteps.hidden = true;
+  el.extensionStepChrome.hidden = true;
+  el.extensionStepFirefox.hidden = true;
+  try {
+    await invoke('install_extension', { target });
+    el.extensionInstallFeedback.textContent = 'Folder opened -- follow the steps below.';
+    el.extensionInstallSteps.hidden = false;
+    (target === 'chrome' ? el.extensionStepChrome : el.extensionStepFirefox).hidden = false;
+  } catch (err) {
+    el.extensionInstallFeedback.classList.add('error');
+    el.extensionInstallFeedback.textContent = String(err);
+  }
+}
+
+el.installChromeBtn.addEventListener('click', () => installExtension('chrome'));
+el.installFirefoxBtn.addEventListener('click', () => installExtension('firefox'));
 
 async function load() {
   const settings = await invoke('get_settings');
@@ -262,6 +330,8 @@ el.form.addEventListener('submit', async (e) => {
 
 load();
 loadPipelineModels();
+refreshServerStatus();
+setInterval(refreshServerStatus, 3000);
 refreshUsage();
 setInterval(refreshUsage, 5000);
 refreshResourceUsage();

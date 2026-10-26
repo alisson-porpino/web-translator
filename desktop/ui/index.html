@@ -15,10 +15,12 @@
     </header>
 
     <div class="status-row">
-      <div class="status">
-        <span class="dot"></span>
-        <span>Running on <code id="serverAddr">http://127.0.0.1:8000</code></span>
+      <div class="status status--server" id="serverStatus">
+        <span class="dot" id="serverDot" style="background:#9a9a9a"></span>
+        <span id="serverStatusText">Server stopped</span>
+        <button type="button" id="serverToggleBtn" class="status__toggle">Start</button>
       </div>
+      <p class="hint" id="serverError" hidden></p>
       <div class="status" id="usageStatus">
         <span class="dot" style="background:#9a9a9a"></span>
         <span id="usageText">Google usage today: —</span>
@@ -28,6 +30,29 @@
         <span id="resourceText">CPU / RAM: —</span>
       </div>
     </div>
+
+    <fieldset class="extension-install">
+      <legend>Browser extension</legend>
+      <p class="hint" style="margin-top:0">
+        Already built and ready to load -- no separate download or build step needed.
+      </p>
+      <div class="extension-install__buttons">
+        <button type="button" id="installChromeBtn">Install for Chrome</button>
+        <button type="button" id="installFirefoxBtn">Install for Firefox</button>
+      </div>
+      <div id="extensionInstallFeedback" class="hint"></div>
+      <ol class="extension-install__steps" id="extensionInstallSteps" hidden>
+        <li id="extensionStepChrome" hidden>
+          A folder just opened. Open <code>chrome://extensions</code>, turn on
+          <strong>Developer mode</strong> (top right), then click <strong>Load unpacked</strong> and pick
+          that folder.
+        </li>
+        <li id="extensionStepFirefox" hidden>
+          A folder just opened. Open <code>about:debugging#/runtime/this-firefox</code>, click
+          <strong>Load Temporary Add-on…</strong>, and pick the <code>manifest.json</code> file inside it.
+        </li>
+      </ol>
+    </fieldset>
 
     <form id="settingsForm">
       <fieldset>
@@ -117,7 +142,10 @@
 
         <label for="port">Server port</label>
         <input id="port" type="number" min="1024" max="65535" />
-        <p class="hint">Changing the port requires restarting the app.</p>
+        <p class="hint">
+          If the server is running, stop and start it again (above) after changing this for it to take
+          effect.
+        </p>
 
         <label for="detectionScoreThreshold">Detection confidence threshold</label>
         <input id="detectionScoreThreshold" type="number" min="0" max="1" step="0.05" />

@@ -37,6 +37,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: extension
+
+      # Pre-built, ready-to-load packages for the desktop app's "Install
+      # extension" button (main.rs's install_extension) -- so installing
+      # the extension never requires the user to run any build tooling
+      # themselves. `wxt zip`'s output filename includes the extension's
+      # own version number, so it's copied to the fixed name
+      # tauri.conf.json's `bundle.resources` and install_extension expect
+      # rather than hardcoding that version here.
+      - name: Build extension packages
+        run: |
+          npm run zip
+          npm run zip:firefox
+          mkdir -p ../desktop/src-tauri/resources
+          cp dist/*-chrome.zip ../desktop/src-tauri/resources/extension-chrome.zip
+          cp dist/*-firefox.zip ../desktop/src-tauri/resources/extension-firefox.zip
+        working-directory: extension
+
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-24.04'
         run: |
@@ -93,3 +118,30 @@ jobs:
             desktop/src-tauri/target/release/bundle/**/*.rpm
             desktop/src-tauri/target/release/bundle/**/*.AppImage
           if-no-files-found: ignore
+
+      - name: Upload extension packages as workflow artifacts
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.platform }}
+          path: |
+            desktop/src-tauri/resources/extension-chrome.zip
+            desktop/src-tauri/resources/extension-firefox.zip
+          if-no-files-found: ignore
+
+      # Also attach the extension packages directly to the release, so
+      # they're grabbable on their own without installing the desktop
+      # app. Restricted to one leg of the matrix (content is identical
+      # across platforms -- the extension itself isn't native code) to
+      # avoid 3 parallel jobs racing to upload the same release assets.
+      - name: Attach extension packages to the release
+        if: github.ref_type == 'tag' && matrix.platform == 'ubuntu-24.04'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: |
+            desktop/src-tauri/resources/extension-chrome.zip
+            desktop/src-tauri/resources/extension-firefox.zip

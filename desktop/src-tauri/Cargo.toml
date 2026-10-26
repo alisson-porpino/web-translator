@@ -52,6 +52,13 @@ koharu-rasterizer = { git = "https://github.com/alisson-porpino/koharu", rev = "
 ] }
 koharu-runtime = { git = "https://github.com/alisson-porpino/koharu", rev = "3b862cc78de73424e8713128d6e7919cb32bd300" }
 tauri-plugin-dialog = "2"
+# "Reveal in Finder/Explorer" for the bundled pre-built extension zip --
+# see main.rs's install_extension.
+tauri-plugin-opener = "2"
+# Extracts the bundled pre-built extension zip so install_extension can
+# open the ready-to-load folder directly -- no manual unzip step for the
+# user.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 # For the optional memory cap (resource_limits.rs): setrlimit(RLIMIT_AS, ..)

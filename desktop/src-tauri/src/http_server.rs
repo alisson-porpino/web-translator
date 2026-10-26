@@ -91,7 +91,18 @@ async fn get_resource_usage(State(state): State<AppState>) -> impl IntoResponse 
     Json(crate::resource_usage::snapshot(&settings))
 }
 
-pub async fn run(state: AppState, port: u16) {
+/// Binds the port up front so a conflict (another app already using it)
+/// surfaces to the caller immediately, instead of only after `serve`
+/// below has been running in the background for a while -- `start_server`
+/// (main.rs) awaits this before telling the UI the server actually
+/// started.
+pub async fn bind(port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await
+}
+
+/// Runs until `shutdown` fires (see `stop_server` in main.rs) or the
+/// listener errors out.
+pub async fn serve(state: AppState, listener: tokio::net::TcpListener, shutdown: tokio::sync::oneshot::Receiver<()>) {
     let app = Router::new()
         .route("/api/jobs", post(create_job))
         .route("/api/jobs/{job_id}", get(get_job).delete(cancel_job))
@@ -101,13 +112,9 @@ pub async fn run(state: AppState, port: u16) {
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{port}");
-    match tokio::net::TcpListener::bind(&addr).await {
-        Ok(listener) => {
-            let _ = axum::serve(listener, app).await;
-        }
-        Err(e) => {
-            eprintln!("Failed to bind local server on {addr}: {e}");
-        }
-    }
+    let _ = axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = shutdown.await;
+        })
+        .await;
 }

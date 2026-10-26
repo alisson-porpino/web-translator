@@ -1,19 +1,34 @@
 import browser from 'webextension-polyfill';
-import { getSettings, saveSettings, setOriginEnabled } from '../../lib/settings';
+import { getSettings, saveSettings, setOriginEnabled, type Settings } from '../../lib/settings';
+
+const openSettingsBtn = document.getElementById('openSettings') as HTMLButtonElement;
+const backToMainBtn = document.getElementById('backToMain') as HTMLButtonElement;
+const setupViewEl = document.getElementById('setupView') as HTMLElement;
+const mainViewEl = document.getElementById('mainView') as HTMLElement;
+const settingsViewEl = document.getElementById('settingsView') as HTMLElement;
+
+const connectionDotEl = document.getElementById('connectionDot') as HTMLSpanElement;
+const connectionTextEl = document.getElementById('connectionText') as HTMLSpanElement;
+
+const setupServerUrlEl = document.getElementById('setupServerUrl') as HTMLInputElement;
+const setupTargetLangEl = document.getElementById('setupTargetLang') as HTMLSelectElement;
+const setupSaveBtn = document.getElementById('setupSave') as HTMLButtonElement;
+const setupStatusEl = document.getElementById('setupStatus') as HTMLDivElement;
 
 const currentSiteEl = document.getElementById('currentSite') as HTMLDivElement;
 const siteEnabledEl = document.getElementById('siteEnabled') as HTMLInputElement;
 const translateNowBtn = document.getElementById('translateNow') as HTMLButtonElement;
 const manualStatusEl = document.getElementById('manualStatus') as HTMLDivElement;
+const resourceUsageEl = document.getElementById('resourceUsage') as HTMLDivElement;
 
 const serverUrlEl = document.getElementById('serverUrl') as HTMLInputElement;
 const targetLangEl = document.getElementById('targetLang') as HTMLSelectElement;
 const saveBtn = document.getElementById('save') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
-const resourceUsageEl = document.getElementById('resourceUsage') as HTMLDivElement;
 
 let activeTab: browser.Tabs.Tab | undefined;
 let activeOrigin: string | null = null;
+let settingsCache: Settings;
 
 async function getActiveTab(): Promise<browser.Tabs.Tab | undefined> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -29,6 +44,17 @@ function originOf(url: string | undefined): string | null {
   }
 }
 
+type View = 'setup' | 'main' | 'settings';
+
+function showView(view: View) {
+  setupViewEl.hidden = view !== 'setup';
+  mainViewEl.hidden = view !== 'main';
+  settingsViewEl.hidden = view !== 'settings';
+  // The first-run setup view already has these two fields front and
+  // center -- no need for a gear icon back into itself.
+  openSettingsBtn.hidden = view === 'setup';
+}
+
 async function load() {
   activeTab = await getActiveTab();
   activeOrigin = originOf(activeTab?.url);
@@ -41,11 +67,18 @@ async function load() {
     currentSiteEl.textContent = activeOrigin;
   }
 
-  const settings = await getSettings();
-  serverUrlEl.value = settings.serverUrl;
-  targetLangEl.value = settings.targetLang;
-  siteEnabledEl.checked = !!activeOrigin && settings.enabledOrigins.includes(activeOrigin);
+  settingsCache = await getSettings();
+  setupServerUrlEl.value = settingsCache.serverUrl;
+  setupTargetLangEl.value = settingsCache.targetLang;
+  serverUrlEl.value = settingsCache.serverUrl;
+  targetLangEl.value = settingsCache.targetLang;
+  siteEnabledEl.checked = !!activeOrigin && settingsCache.enabledOrigins.includes(activeOrigin);
+
+  showView(settingsCache.hasCompletedSetup ? 'main' : 'setup');
 }
+
+openSettingsBtn.addEventListener('click', () => showView('settings'));
+backToMainBtn.addEventListener('click', () => showView('main'));
 
 siteEnabledEl.addEventListener('change', async () => {
   if (!activeOrigin) return;
@@ -70,37 +103,62 @@ interface ResourceUsage {
   totalMemoryMb: number;
   maxCpuThreads: number;
   maxMemoryMb: number;
-  maxVramMb: number;
+}
+
+function setConnected(connected: boolean) {
+  connectionDotEl.style.background = connected ? '#4ade80' : '#f87171';
+  connectionTextEl.textContent = connected ? 'Connected to desktop app' : 'Not connected -- is the server running?';
 }
 
 // Polls the desktop app's own /api/resources (http_server.rs) -- same
 // live reading the desktop settings window shows, just reachable from
-// the extension without the desktop window needing to be open.
+// the extension without the desktop window needing to be open. Doubles
+// as the connection check: a successful response means the extension
+// can actually reach the app right now, a failed one means it can't
+// (server not started, wrong port, app not running, etc).
 async function refreshResourceUsage() {
-  const base = (serverUrlEl.value.trim() || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  const base = (settingsCache?.serverUrl.trim() || 'http://127.0.0.1:8000').replace(/\/+$/, '');
   try {
     const res = await fetch(`${base}/api/resources`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const u = (await res.json()) as ResourceUsage;
+    setConnected(true);
     const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads} threads)` : '';
     const ramCap = u.maxMemoryMb > 0 ? ` / cap ${u.maxMemoryMb}MB` : '';
-    const vram = u.maxVramMb > 0 ? ` · VRAM budget ${u.maxVramMb}MB` : '';
-    resourceUsageEl.textContent =
-      `CPU ${Math.round(u.cpuPercent)}%${cpuCap}\nRAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}${vram}`;
+    resourceUsageEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap}\nRAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}`;
   } catch {
+    setConnected(false);
     resourceUsageEl.textContent = 'Desktop app not reachable.';
   }
 }
 
+setupSaveBtn.addEventListener('click', async () => {
+  const next: Settings = {
+    ...settingsCache,
+    serverUrl: setupServerUrlEl.value.trim() || 'http://127.0.0.1:8000',
+    targetLang: setupTargetLangEl.value,
+    hasCompletedSetup: true,
+  };
+  await saveSettings(next);
+  settingsCache = next;
+  serverUrlEl.value = next.serverUrl;
+  targetLangEl.value = next.targetLang;
+  setupStatusEl.textContent = '';
+  showView('main');
+  refreshResourceUsage();
+});
+
 saveBtn.addEventListener('click', async () => {
-  const settings = await getSettings();
-  await saveSettings({
-    ...settings,
+  const next: Settings = {
+    ...settingsCache,
     serverUrl: serverUrlEl.value.trim() || 'http://127.0.0.1:8000',
     targetLang: targetLangEl.value,
-  });
+  };
+  await saveSettings(next);
+  settingsCache = next;
   statusEl.textContent = 'Saved.';
   setTimeout(() => (statusEl.textContent = ''), 1500);
+  refreshResourceUsage();
 });
 
 void load().then(() => {

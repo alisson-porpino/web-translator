@@ -199,6 +199,9 @@ name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "arc-swap"
@@ -1622,6 +1625,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 dependencies = [
  "serde_core",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -3575,6 +3589,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
+name = "is-docker"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "928bae27f42bc99b60d9ac7334e3a21d10ad8f1835a4e12ec3ec0464765ed1b3"
+dependencies = [
+ "once_cell",
+]
+
+[[package]]
+name = "is-wsl"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "173609498df190136aa7dea1a91db051746d339e18476eed5ca40521f02d7aa5"
+dependencies = [
+ "is-docker",
+ "once_cell",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4082,7 +4115,7 @@ dependencies = [
  "tokio",
  "tracing",
  "walkdir",
- "zip",
+ "zip 9.1.0",
 ]
 
 [[package]]
@@ -4153,7 +4186,7 @@ dependencies = [
  "rand 0.10.3",
  "safetensors",
  "thiserror 2.0.21",
- "zip",
+ "zip 9.1.0",
 ]
 
 [[package]]
@@ -4549,11 +4582,13 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-opener",
  "tokio",
  "tower-http",
  "tracing",
  "uuid",
  "windows",
+ "zip 2.6.1",
 ]
 
 [[package]]
@@ -5378,6 +5413,17 @@ checksum = "1e68317604e77e53b85896388e1a803c1d21b74c899ec9e5e1112db90735edd7"
 dependencies = [
  "cc",
  "pkg-config",
+]
+
+[[package]]
+name = "open"
+version = "5.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d8c8b8e725ad26404d6896eb2f064294a0a7b4f1d9120210d85544684c4ca95"
+dependencies = [
+ "dunce",
+ "is-wsl",
+ "libc",
 ]
 
 [[package]]
@@ -8006,6 +8052,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-opener"
+version = "2.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53810be1b4fed22bb6ac3f4cab5a2b80d9391d1af436bda145607532bc0bb219"
+dependencies = [
+ "dunce",
+ "glob",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "open",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.21",
+ "url",
+ "windows",
+ "zbus",
+]
+
+[[package]]
 name = "tauri-runtime"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10363,6 +10431,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "zip"
+version = "2.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1dcb24d0152526ae49b9b96c1dcf71850ca1e0b882e4e28ed898a93c41334744"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "crossbeam-utils",
+ "flate2",
+ "indexmap 2.14.2",
+ "memchr",
+ "zopfli",
 ]
 
 [[package]]
