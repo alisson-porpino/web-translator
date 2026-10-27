@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod download_tracker;
 mod engines;
 mod http_server;
 mod jobs;
@@ -152,8 +153,19 @@ fn get_google_usage(state: tauri::State<AppState>, app: tauri::AppHandle) -> ser
 }
 
 #[tauri::command]
-fn get_resource_usage(app: tauri::AppHandle) -> resource_usage::ResourceUsage {
-    resource_usage::snapshot(&settings::load(&app))
+async fn get_resource_usage(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<resource_usage::ResourceUsage, String> {
+    let settings = settings::load(&app);
+    let models_loaded = engines::koharu_engine::is_loaded().await;
+    let active_jobs = state.active_jobs.load(std::sync::atomic::Ordering::Relaxed);
+    Ok(resource_usage::snapshot(&settings, models_loaded, active_jobs))
+}
+
+#[tauri::command]
+async fn unload_models() -> Result<bool, String> {
+    Ok(engines::koharu_engine::unload().await)
 }
 
 #[tauri::command]
@@ -191,6 +203,7 @@ fn main() {
             get_status,
             get_google_usage,
             get_resource_usage,
+            unload_models,
             get_pipeline_models,
             set_pipeline_models,
             get_translation_models,
@@ -206,12 +219,15 @@ fn main() {
             let cache_dir = settings::cache_dir(&app_handle);
             let initial_settings = settings::load(&app_handle);
             resource_limits::set_limits(initial_settings.max_cpu_threads, initial_settings.max_memory_mb);
+            download_tracker::start_download_listener();
 
             let state = AppState {
                 app_handle: app_handle.clone(),
                 jobs: Arc::new(Mutex::new(HashMap::new())),
                 cache_dir,
                 google_usage: Arc::new(UsageTracker::load(&app_handle)),
+                active_jobs: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                idle_timer_cancel: Arc::new(Mutex::new(None)),
                 local_engine_slots: Arc::new(tokio::sync::Semaphore::new(1)),
                 cancelled_jobs: Arc::new(Mutex::new(std::collections::HashSet::new())),
                 running_stops: Arc::new(Mutex::new(HashMap::new())),

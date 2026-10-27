@@ -63,24 +63,113 @@ let settings: Settings;
 // of one image at a time.
 let progressPanel: HTMLDivElement | null = null;
 let progressText: HTMLSpanElement | null = null;
+let progressDetailText: HTMLSpanElement | null = null;
+let progressProgressBar: HTMLDivElement | null = null;
+let progressProgressFill: HTMLDivElement | null = null;
 let progressStopBtn: HTMLButtonElement | null = null;
 let totalQueued = 0;
 let totalFinished = 0;
 let hidePanelTimer: ReturnType<typeof setTimeout> | null = null;
+let currentProgressDetail = '';
+let currentProgressPercent: number | null = null;
+
+// Toast container for user-facing error / alert notifications
+let toastContainer: HTMLDivElement | null = null;
+
+function ensureToastContainer(): HTMLDivElement {
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'mwt-toast-container';
+    document.documentElement.appendChild(toastContainer);
+  }
+  return toastContainer;
+}
+
+function showToast(title: string, message: string, type: 'error' | 'info' = 'error'): void {
+  const container = ensureToastContainer();
+  const toast = document.createElement('div');
+  toast.className = `mwt-toast mwt-toast--${type}`;
+
+  const iconEl = document.createElement('div');
+  iconEl.className = 'mwt-toast__icon';
+  iconEl.textContent = type === 'error' ? '⚠️' : 'ℹ️';
+  toast.appendChild(iconEl);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'mwt-toast__body';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'mwt-toast__title';
+  titleEl.textContent = title;
+  bodyEl.appendChild(titleEl);
+
+  const msgEl = document.createElement('div');
+  msgEl.className = 'mwt-toast__message';
+  msgEl.textContent = message;
+  bodyEl.appendChild(msgEl);
+
+  toast.appendChild(bodyEl);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'mwt-toast__close';
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Fechar';
+  closeBtn.addEventListener('click', () => {
+    toast.classList.add('mwt-toast--dismissing');
+    setTimeout(() => toast.remove(), 250);
+  });
+  toast.appendChild(closeBtn);
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.classList.add('mwt-toast--dismissing');
+      setTimeout(() => toast.remove(), 250);
+    }
+  }, 8000);
+}
 
 function ensureProgressPanel(): void {
   if (progressPanel) return;
   progressPanel = document.createElement('div');
   progressPanel.className = 'mwt-progress-panel';
+
+  const row = document.createElement('div');
+  row.className = 'mwt-progress-panel__main';
+
+  const textGroup = document.createElement('div');
+  textGroup.className = 'mwt-progress-panel__text-group';
+
   progressText = document.createElement('span');
   progressText.className = 'mwt-progress-panel__text';
+  textGroup.appendChild(progressText);
+
+  progressDetailText = document.createElement('span');
+  progressDetailText.className = 'mwt-progress-panel__detail';
+  progressDetailText.hidden = true;
+  textGroup.appendChild(progressDetailText);
+
+  row.appendChild(textGroup);
+
   progressStopBtn = document.createElement('button');
   progressStopBtn.className = 'mwt-progress-panel__stop';
   progressStopBtn.type = 'button';
   progressStopBtn.textContent = 'Stop';
   progressStopBtn.addEventListener('click', stopAllTranslations);
-  progressPanel.appendChild(progressText);
-  progressPanel.appendChild(progressStopBtn);
+  row.appendChild(progressStopBtn);
+
+  progressPanel.appendChild(row);
+
+  progressProgressBar = document.createElement('div');
+  progressProgressBar.className = 'mwt-progress-panel__bar';
+  progressProgressBar.hidden = true;
+  progressProgressFill = document.createElement('div');
+  progressProgressFill.className = 'mwt-progress-panel__fill';
+  progressProgressBar.appendChild(progressProgressFill);
+  progressPanel.appendChild(progressProgressBar);
+
   document.documentElement.appendChild(progressPanel);
 }
 
@@ -99,6 +188,10 @@ function updateProgressPanel(): void {
 
   if (totalFinished >= totalQueued) {
     progressText!.textContent = `Translated ${totalFinished}/${totalQueued}.`;
+    if (progressDetailText) progressDetailText.hidden = true;
+    if (progressProgressBar) progressProgressBar.hidden = true;
+    currentProgressDetail = '';
+    currentProgressPercent = null;
     progressStopBtn!.disabled = true;
     // Auto-dismiss, then reset so the next "translate this page" starts a
     // fresh count instead of carrying this batch's totals forward.
@@ -112,6 +205,20 @@ function updateProgressPanel(): void {
     progressText!.textContent =
       `Translating ${totalFinished}/${totalQueued}${running > 0 ? ` (${running} running)` : ''}…`;
     progressStopBtn!.disabled = false;
+
+    if (currentProgressDetail) {
+      progressDetailText!.textContent = currentProgressDetail;
+      progressDetailText!.hidden = false;
+    } else {
+      progressDetailText!.hidden = true;
+    }
+
+    if (currentProgressPercent !== null && currentProgressPercent >= 0) {
+      progressProgressBar!.hidden = false;
+      progressProgressFill!.style.width = `${Math.min(100, Math.max(0, currentProgressPercent))}%`;
+    } else {
+      progressProgressBar!.hidden = true;
+    }
   }
 }
 
@@ -276,6 +383,20 @@ interface ResourceUsage {
   cpuPercent: number;
   usedMemoryMb: number;
   totalMemoryMb: number;
+  processMemoryMb?: number;
+  gpuName?: string;
+  gpuMemoryUsedMb?: number;
+  gpuMemoryTotalMb?: number;
+  modelsLoaded?: boolean;
+  activeJobs?: number;
+  downloadStatus?: {
+    isDownloading: boolean;
+    modelName?: string;
+    stage?: string;
+    percent?: number;
+    downloadedBytes?: number;
+    totalBytes?: number;
+  };
   maxCpuThreads: number;
   maxMemoryMb: number;
 }
@@ -288,9 +409,19 @@ async function pollReviewResources(): Promise<void> {
   if (!reviewResourceEl) return;
   try {
     const u = (await browser.runtime.sendMessage({ type: 'GET_RESOURCE_USAGE' })) as ResourceUsage;
-    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads} threads)` : '';
-    const ramCap = u.maxMemoryMb > 0 ? ` / cap ${u.maxMemoryMb}MB` : '';
-    reviewResourceEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · RAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}`;
+    const parts: string[] = [];
+    if (u.processMemoryMb !== undefined) {
+      parts.push(`App: ${u.processMemoryMb}MB`);
+    }
+    parts.push(`RAM: ${u.usedMemoryMb}/${u.totalMemoryMb}MB`);
+    if (u.gpuMemoryUsedMb !== undefined && u.gpuMemoryTotalMb !== undefined && u.gpuMemoryTotalMb > 0) {
+      parts.push(`VRAM: ${u.gpuMemoryUsedMb}/${u.gpuMemoryTotalMb}MB`);
+    }
+    if (u.downloadStatus?.isDownloading) {
+      const pct = Math.round(u.downloadStatus.percent ?? 0);
+      parts.push(`Baixando (${pct}%)`);
+    }
+    reviewResourceEl.textContent = parts.join(' · ');
   } catch {
     reviewResourceEl.textContent = 'Desktop app resources: unavailable';
   }
@@ -598,6 +729,15 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
   if (!response.ok || !response.translatedImageUrl) {
     wrapper.classList.add(response.cancelled ? 'mwt-border--cancelled' : 'mwt-border--error');
     wrapper.title = response.cancelled ? 'Cancelled.' : (response.errorMessage ?? response.errorCode ?? 'Translation failed');
+    if (!response.cancelled) {
+      let friendlyMsg = response.errorMessage ?? response.errorCode ?? 'Falha ao traduzir imagem.';
+      if (response.errorCode === 'SERVER_CONNECTION_ERROR') {
+        friendlyMsg = 'Não foi possível conectar ao aplicativo desktop Manga Web Translator. Verifique se ele está aberto.';
+      } else if (response.errorCode === 'TRANSLATION_TIMEOUT') {
+        friendlyMsg = 'Tempo limite atingido durante o processamento do modelo.';
+      }
+      showToast('Erro na Tradução', friendlyMsg, 'error');
+    }
     return;
   }
 
@@ -751,7 +891,32 @@ export default defineContentScript({
 
     browser.runtime.onMessage.addListener((message: unknown) => {
       const msg = message as { type?: string; srcUrl?: string };
-      if (msg?.type === 'TRANSLATE_PAGE_NOW') {
+      if (msg?.type === 'JOB_PROGRESS') {
+        const p = message as {
+          type: 'JOB_PROGRESS';
+          imageUrl?: string;
+          stage?: string;
+          progressMessage?: string;
+          progressPercent?: number;
+        };
+        if (p.progressMessage) {
+          currentProgressDetail = p.progressMessage;
+          currentProgressPercent = p.progressPercent ?? null;
+          updateProgressPanel();
+        }
+        if (p.imageUrl) {
+          for (const [img, row] of activeReviewRows.entries()) {
+            const src = img.currentSrc || img.src;
+            if (src === p.imageUrl || p.imageUrl.includes(src)) {
+              if (p.progressMessage) {
+                row.statusEl.textContent = p.progressMessage;
+                row.statusEl.title = p.progressMessage;
+              }
+              break;
+            }
+          }
+        }
+      } else if (msg?.type === 'TRANSLATE_PAGE_NOW') {
         console.log(LOG, 'manual translate requested for this tab');
         scanForCandidates('manual');
       } else if (msg?.type === 'TRANSLATE_ONE_IMAGE' && msg.srcUrl) {

@@ -210,6 +210,19 @@
       <div id="resourceUsage" style="font-size:11px;color:#bbb;line-height:1.5;white-space:pre-line">
         Connecting…
       </div>
+      <div id="popupDownloadBanner" style="display:none; margin-top:8px; padding:8px; background:rgba(255,255,255,0.06); border-radius:6px; border:1px solid rgba(255,255,255,0.1)">
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px">
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:210px">📥 <span id="popupDownloadTitle">Baixando modelo...</span></span>
+          <span id="popupDownloadPercent" style="color:#60a5fa; font-weight:600">0%</span>
+        </div>
+        <div style="height:4px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden">
+          <div id="popupDownloadBar" style="height:100%; width:0%; background:#3b82f6; transition:width 0.3s"></div>
+        </div>
+      </div>
+      <button type="button" id="popupUnloadBtn" style="display:none; margin-top:8px; padding:6px 8px; font-size:11px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:6px; cursor:pointer;">
+        Liberar Memória dos Modelos
+      </button>
+      <div id="popupUnloadFeedback" style="font-size:11px; color:#4ade80; margin-top:4px;"></div>
     </section>
 
     <!-- Reached via the gear icon; same fields the setup view has. -->

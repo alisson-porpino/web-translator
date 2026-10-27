@@ -97,13 +97,59 @@ translateNowBtn.addEventListener('click', async () => {
   setTimeout(() => (manualStatusEl.textContent = ''), 3000);
 });
 
+interface DownloadStatus {
+  active: boolean;
+  name: string;
+  completedBytes: number;
+  totalBytes: number;
+  percent: number;
+}
+
 interface ResourceUsage {
   cpuPercent: number;
+  processCpuPercent?: number;
+  processMemoryMb?: number;
+  systemUsedMemoryMb?: number;
+  systemTotalMemoryMb?: number;
   usedMemoryMb: number;
   totalMemoryMb: number;
+  gpuName?: string;
+  vramUsedMb?: number;
+  vramTotalMb?: number;
+  modelsLoaded?: boolean;
+  activeJobs?: number;
   maxCpuThreads: number;
   maxMemoryMb: number;
+  download?: DownloadStatus | null;
 }
+
+const popupUnloadBtn = document.getElementById('popupUnloadBtn') as HTMLButtonElement | null;
+const popupUnloadFeedback = document.getElementById('popupUnloadFeedback') as HTMLDivElement | null;
+const popupDownloadBanner = document.getElementById('popupDownloadBanner') as HTMLDivElement | null;
+const popupDownloadTitle = document.getElementById('popupDownloadTitle') as HTMLSpanElement | null;
+const popupDownloadPercent = document.getElementById('popupDownloadPercent') as HTMLSpanElement | null;
+const popupDownloadBar = document.getElementById('popupDownloadBar') as HTMLDivElement | null;
+
+popupUnloadBtn?.addEventListener('click', async () => {
+  const base = (settingsCache?.serverUrl.trim() || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  popupUnloadBtn.disabled = true;
+  popupUnloadBtn.textContent = 'Liberando memória…';
+  try {
+    const res = await fetch(`${base}/api/pipeline/unload`, { method: 'POST' });
+    if (res.ok) {
+      if (popupUnloadFeedback) popupUnloadFeedback.textContent = 'Memória liberada com sucesso!';
+      setTimeout(() => {
+        if (popupUnloadFeedback) popupUnloadFeedback.textContent = '';
+      }, 3000);
+      await refreshResourceUsage();
+    }
+  } catch (err) {
+    if (popupUnloadFeedback) popupUnloadFeedback.textContent = `Erro ao liberar: ${err}`;
+  } finally {
+    popupUnloadBtn.disabled = false;
+    popupUnloadBtn.textContent = 'Liberar Memória dos Modelos';
+  }
+});
 
 function setConnected(connected: boolean) {
   connectionDotEl.style.background = connected ? '#4ade80' : '#f87171';
@@ -123,12 +169,40 @@ async function refreshResourceUsage() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const u = (await res.json()) as ResourceUsage;
     setConnected(true);
-    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads} threads)` : '';
-    const ramCap = u.maxMemoryMb > 0 ? ` / cap ${u.maxMemoryMb}MB` : '';
-    resourceUsageEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap}\nRAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}`;
+    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads}t)` : '';
+    const procMem = u.processMemoryMb != null ? `${u.processMemoryMb} MB` : `${u.usedMemoryMb} MB`;
+    const sysUsed = u.systemUsedMemoryMb ?? u.usedMemoryMb;
+    const sysTotal = u.systemTotalMemoryMb ?? u.totalMemoryMb;
+    const gpuText = u.gpuName
+      ? `\nGPU (${u.gpuName}): ${u.vramUsedMb || 0}/${u.vramTotalMb || 0} MB`
+      : u.vramUsedMb != null
+        ? `\nVRAM: ${u.vramUsedMb}/${u.vramTotalMb || 0} MB`
+        : '';
+    const modelStatus = u.modelsLoaded ? 'Modelos em RAM: Ativos' : 'Modelos: Desalocados (Idle)';
+    const jobsInfo = u.activeJobs && u.activeJobs > 0 ? ` (${u.activeJobs} ativo)` : '';
+
+    resourceUsageEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap}\nApp RAM: ${procMem} · Sistema: ${sysUsed}/${sysTotal} MB${gpuText}\nStatus: ${modelStatus}${jobsInfo}`;
+
+    if (popupUnloadBtn) {
+      popupUnloadBtn.style.display = u.modelsLoaded ? 'block' : 'none';
+    }
+
+    if (popupDownloadBanner) {
+      if (u.download && u.download.active) {
+        popupDownloadBanner.style.display = 'block';
+        if (popupDownloadTitle) popupDownloadTitle.textContent = u.download.name;
+        const pct = Math.round(u.download.percent || 0);
+        if (popupDownloadPercent) popupDownloadPercent.textContent = `${pct}%`;
+        if (popupDownloadBar) popupDownloadBar.style.width = `${pct}%`;
+      } else {
+        popupDownloadBanner.style.display = 'none';
+      }
+    }
   } catch {
     setConnected(false);
     resourceUsageEl.textContent = 'Desktop app not reachable.';
+    if (popupUnloadBtn) popupUnloadBtn.style.display = 'none';
+    if (popupDownloadBanner) popupDownloadBanner.style.display = 'none';
   }
 }
 

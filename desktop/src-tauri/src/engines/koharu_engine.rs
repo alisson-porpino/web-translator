@@ -2,23 +2,8 @@
 //! github.com/alisson-porpino/koharu), replacing this crate's own
 //! detect/OCR/inpaint/translate engines (onnxruntime + llama-cpp-2) -- see
 //! specs/DIRETRIZES.md's "Migração em andamento" section for why.
-//!
-//! Same contract as the engine it replaces (`local_pipeline::translate`):
-//! `jobs.rs` calls this the same way, so nothing above this module changed
-//! -- HTTP routes, job queue, cache keying, the browser extension are all
-//! untouched. Built from `koharu-headless-spike` (a throwaway crate in the
-//! fork itself, see its own doc comment), which validated this exact
-//! approach -- an ephemeral in-memory project with one page, no desktop
-//! GUI/CEF window, no Chrome Native Messaging -- against a real benchmark
-//! page: 67.5s total (56s pipeline) vs. this app's previous ~7 minutes for
-//! the same page, with no inpainting white-boxes and far better text
-//! layout. That spike's `run_pipeline`-equivalent logic was itself ported
-//! from the Koharu project's own (102-commits-stale, never-merged)
-//! `web-extension` branch's `koharu-native-messaging` crate, which had
-//! already solved the "ephemeral single-page project" construction this
-//! would otherwise have needed real trial-and-error to figure out.
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use koharu_pipeline::{Committer, Pipeline, PipelineConfig, Request, RunStatus, StageOutput, StopToken};
@@ -26,56 +11,64 @@ use koharu_rasterizer::{RasterOptions, Rasterizer};
 use koharu_renderer::Renderer;
 use koharu_scene::{AssetInput, AssetMetadata, AssetRole, At, PageDraft, Session, Snapshot};
 use tauri::AppHandle;
+use tokio::sync::Mutex as TokioMutex;
 
 use super::{EngineError, EngineResult};
 
 /// Cache-key tag for this engine -- see jobs.rs's cache_filename
 /// construction (DIRETRIZES.md Principio 4: "cache correto é
-/// inegociável"). Bump this whenever this module's behavior changes
-/// materially (same rule `local_pipeline::PIPELINE_VERSION` followed),
-/// same reasoning as that constant: a stale cached PNG from a different
-/// engine/behavior generation must never be served as if it came from
-/// this one. jobs.rs switched to this constant (from
-/// `local_pipeline::PIPELINE_VERSION`) the moment this module replaced
-/// `local_pipeline` as the "local" engine -- the two could never share a
-/// version namespace anyway, since they're different engines entirely,
-/// not successive versions of the same one.
+/// inegociável").
 pub const ENGINE_VERSION: &str = "koharu-v1";
 
-/// Loaded once per process -- rebuilding it would mean re-reading every
-/// model from disk again (the exact per-call reload cost this migration
-/// exists to avoid; see the module doc's timing numbers). `OnceLock`
-/// instead of a plain `static Pipeline` because `Pipeline::load` is
-/// fallible and needs an async `koharu_ml::init()` first.
-static PIPELINE: OnceLock<Result<Pipeline, String>> = OnceLock::new();
+/// Pipeline singleton wrapped in a Tokio Mutex so it can be dynamically
+/// unloaded on idle timeout or user request to reclaim RAM/VRAM.
+static PIPELINE: TokioMutex<Option<Pipeline>> = TokioMutex::const_new(None);
+
+/// Returns true if the ML pipeline models are currently loaded in RAM.
+pub async fn is_loaded() -> bool {
+    PIPELINE.lock().await.is_some()
+}
+
+/// Explicitly unloads all pipeline models from memory and triggers an OS-level
+/// memory trim on Windows (EmptyWorkingSet) to immediately return allocated
+/// physical RAM to the operating system.
+pub async fn unload() -> bool {
+    let mut guard = PIPELINE.lock().await;
+    let was_loaded = guard.take().is_some();
+    if was_loaded {
+        tracing::info!("koharu_engine: pipeline unloaded from memory");
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
+            use windows::Win32::System::Threading::GetCurrentProcess;
+            let _ = EmptyWorkingSet(GetCurrentProcess());
+        }
+        #[cfg(target_os = "linux")]
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    }
+    was_loaded
+}
 
 async fn pipeline(models_dir: Option<&str>) -> Result<Pipeline, String> {
-    if let Some(result) = PIPELINE.get() {
-        return result.clone();
+    let mut guard = PIPELINE.lock().await;
+    if let Some(pipe) = guard.as_ref() {
+        return Ok(pipe.clone());
     }
-    // Store::configure is itself OnceLock-protected (see koharu-runtime's
-    // store.rs) -- must run before koharu_ml::init() touches it for the
-    // first time in this process, same "takes effect only on next launch"
-    // rule as everything else gated behind this module's own PIPELINE
-    // OnceLock (e.g. the port setting). A relative path is rejected by
-    // Store::configure itself; settings.rs's UI is expected to always save
-    // an absolute path from the native folder picker.
+
     if let Some(dir) = models_dir {
         if let Err(e) = koharu_runtime::Store::configure(std::path::PathBuf::from(dir)) {
             return Err(format!("failed to configure Koharu's model storage directory '{dir}': {e:#}"));
         }
     }
-    let result = async {
-        koharu_ml::init().await.map_err(|e| format!("failed to initialize Koharu's ML runtime: {e:#}"))?;
-        let device = koharu_ml::device(false);
-        tracing::info!(?device, "koharu_engine: device selected");
-        Pipeline::load(device).map_err(|e| format!("failed to load Koharu's pipeline: {e:#}"))
-    }
-    .await;
-    // Another task may have raced us here; OnceLock keeps whichever
-    // finished first and this clone just reflects that -- fine either way
-    // since both would have built the same thing.
-    PIPELINE.get_or_init(|| result).clone()
+
+    koharu_ml::init().await.map_err(|e| format!("failed to initialize Koharu's ML runtime: {e:#}"))?;
+    let device = koharu_ml::device(false);
+    tracing::info!(?device, "koharu_engine: device selected");
+    let pipe = Pipeline::load(device).map_err(|e| format!("failed to load Koharu's pipeline: {e:#}"))?;
+    *guard = Some(pipe.clone());
+    Ok(pipe)
 }
 
 struct JobCommitter {
@@ -90,19 +83,19 @@ impl Committer for JobCommitter {
     }
 }
 
-/// `stop`: jobs.rs creates this, keeps a clone to call `.stop()` on from the
-/// `DELETE /api/jobs/:id` handler, and passes another clone in here --
-/// lets an in-flight job actually be interrupted instead of always running
-/// to completion in the background (koharu-pipeline checks it at each
-/// stage boundary -- detection/OCR/translation/inpainting -- not mid-stage,
-/// so Stop takes effect at the end of whichever stage is currently
-/// running, not instantly, but without this it never took effect at all).
+pub type ProgressCallback = Arc<dyn Fn(String, Option<f32>) + Send + Sync>;
+
 pub async fn translate(
     app: AppHandle,
     image_bytes: Vec<u8>,
     target_lang: &str,
     stop: StopToken,
+    on_progress: Option<ProgressCallback>,
 ) -> Result<EngineResult, EngineError> {
+    if let Some(ref cb) = on_progress {
+        cb("Inicializando pipeline de modelos...".to_string(), None);
+    }
+
     let models_dir = crate::settings::load(&app).models_dir;
     let pipeline = pipeline(models_dir.as_deref()).await.map_err(|e| EngineError::new("ENGINE_UNAVAILABLE", e))?;
 
@@ -110,15 +103,11 @@ pub async fn translate(
         .parse()
         .map_err(|_| EngineError::new("TRANSLATION_FAILED", format!("unsupported target language '{target_lang}'")))?;
 
-    // Per-job config, not the shared live-reloaded one Pipeline::from_config
-    // watches: only `target_language` differs from the user's own Koharu
-    // settings (same detection/OCR/inpainting/translation model choices
-    // they already configured in the real Koharu app), and mutating a
-    // *shared* config would trigger that watcher's StageRunner rebuild on
-    // every single job -- reintroducing the reload-per-call cost this
-    // migration exists to eliminate. `Pipeline::load`'s already-loaded
-    // runner is reused as-is; only this one request's config copy changes.
-    let mut config = PipelineConfig::load().map_err(|e| EngineError::new("ENGINE_UNAVAILABLE", e.to_string()))?.read().map_err(|e| EngineError::new("ENGINE_UNAVAILABLE", e.to_string()))?.clone();
+    let mut config = PipelineConfig::load()
+        .map_err(|e| EngineError::new("ENGINE_UNAVAILABLE", e.to_string()))?
+        .read()
+        .map_err(|e| EngineError::new("ENGINE_UNAVAILABLE", e.to_string()))?
+        .clone();
     config.translation.target_language = target_language;
 
     let (width, height) = {
@@ -149,8 +138,47 @@ pub async fn translate(
     let patch = edit.finish().map_err(|e| EngineError::new("TRANSLATION_FAILED", e.to_string()))?;
     session.commit(patch).await.map_err(|e| EngineError::new("TRANSLATION_FAILED", e.to_string()))?;
 
+    let progress_callback = on_progress.clone();
+    let progress_sink: Option<koharu_pipeline::ProgressSink> = progress_callback.map(|cb| {
+        Arc::new(move |progress: koharu_pipeline::Progress| match progress {
+            koharu_pipeline::Progress::Started { stages, .. } => {
+                cb(format!("Iniciando processamento ({} estágios)...", stages.len()), None);
+            }
+            koharu_pipeline::Progress::Loading { stage, model, .. } => {
+                let stage_name = match stage {
+                    koharu_pipeline::Stage::Detection => "Detecção",
+                    koharu_pipeline::Stage::Ocr => "OCR",
+                    koharu_pipeline::Stage::Translation => "Tradução",
+                    koharu_pipeline::Stage::Inpainting => "Inpainting",
+                };
+                cb(format!("Carregando {stage_name} ({model})..."), None);
+            }
+            koharu_pipeline::Progress::Running { stage, model, .. } => {
+                let stage_name = match stage {
+                    koharu_pipeline::Stage::Detection => "Detectando caixas e balões",
+                    koharu_pipeline::Stage::Ocr => "Lendo texto original (OCR)",
+                    koharu_pipeline::Stage::Translation => "Traduzindo texto",
+                    koharu_pipeline::Stage::Inpainting => "Removendo texto (Inpainting)",
+                };
+                cb(format!("{stage_name} ({model})..."), None);
+            }
+            koharu_pipeline::Progress::Finished { stage, elapsed, .. } => {
+                let stage_name = match stage {
+                    koharu_pipeline::Stage::Detection => "Detecção",
+                    koharu_pipeline::Stage::Ocr => "OCR",
+                    koharu_pipeline::Stage::Translation => "Tradução",
+                    koharu_pipeline::Stage::Inpainting => "Inpainting",
+                };
+                cb(format!("{stage_name} finalizado em {:.1}s", elapsed.as_secs_f32()), None);
+            }
+            koharu_pipeline::Progress::Skipped { stage, .. } => {
+                cb(format!("Estágio {stage:?} ignorado"), None);
+            }
+        }) as koharu_pipeline::ProgressSink
+    });
+
     let mut committer = JobCommitter { session };
-    let request = Request { stop, ..Request::default() }; // Operation::Full
+    let request = Request { stop, progress: progress_sink, ..Request::default() };
     let report = pipeline
         .execute(committer.session.snapshot(), request, &mut committer)
         .await
@@ -158,6 +186,10 @@ pub async fn translate(
 
     if report.status == RunStatus::Stopped {
         return Err(EngineError::new("TRANSLATION_FAILED", "pipeline execution was stopped"));
+    }
+
+    if let Some(ref cb) = on_progress {
+        cb("Renderizando imagem traduzida...".to_string(), None);
     }
 
     let final_snapshot = committer.session.snapshot();

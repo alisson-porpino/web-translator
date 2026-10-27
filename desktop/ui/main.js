@@ -24,7 +24,13 @@ const el = {
   usageText: document.getElementById('usageText'),
   usageDot: document.querySelector('#usageStatus .dot'),
   resourceText: document.getElementById('resourceText'),
+  resourceDetailText: document.getElementById('resourceDetailText'),
   resourceDot: document.querySelector('#resourceStatus .dot'),
+  unloadModelsBtn: document.getElementById('unloadModelsBtn'),
+  downloadBanner: document.getElementById('downloadBanner'),
+  downloadTitle: document.getElementById('downloadTitle'),
+  downloadPercent: document.getElementById('downloadPercent'),
+  downloadBarFill: document.getElementById('downloadBarFill'),
   serverDot: document.getElementById('serverDot'),
   serverStatusText: document.getElementById('serverStatusText'),
   serverToggleBtn: document.getElementById('serverToggleBtn'),
@@ -302,13 +308,62 @@ async function refreshUsage() {
 async function refreshResourceUsage() {
   try {
     const u = await invoke('get_resource_usage');
-    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads} threads)` : '';
-    const ramCap = u.maxMemoryMb > 0 ? ` / cap ${u.maxMemoryMb}MB` : '';
-    el.resourceText.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · RAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}`;
-    el.resourceDot.style.background = u.cpuPercent >= 90 ? '#dc2626' : u.cpuPercent >= 70 ? '#f59e0b' : '#16a34a';
+    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads}t)` : '';
+    const procMem = u.processMemoryMb != null ? `${u.processMemoryMb} MB` : `${u.usedMemoryMb} MB`;
+    const gpuText = u.gpuName
+      ? ` · GPU (${u.gpuName}): ${u.vramUsedMb || 0}/${u.vramTotalMb || 0} MB`
+      : u.vramUsedMb != null
+        ? ` · VRAM: ${u.vramUsedMb}/${u.vramTotalMb || 0} MB`
+        : '';
+
+    el.resourceText.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · App RAM: ${procMem}${gpuText}`;
+
+    const sysUsed = u.systemUsedMemoryMb ?? u.usedMemoryMb;
+    const sysTotal = u.systemTotalMemoryMb ?? u.totalMemoryMb;
+    const modelStatus = u.modelsLoaded ? 'Modelos em RAM: Ativos' : 'Modelos: Desalocados (Idle)';
+    const jobsInfo = u.activeJobs > 0 ? ` · ${u.activeJobs} job(s) em processamento` : '';
+    if (el.resourceDetailText) {
+      el.resourceDetailText.textContent = `Sistema: ${sysUsed}/${sysTotal} MB · ${modelStatus}${jobsInfo}`;
+    }
+
+    el.resourceDot.style.background = u.modelsLoaded ? '#3b82f6' : '#16a34a';
+    if (el.unloadModelsBtn) {
+      el.unloadModelsBtn.style.display = u.modelsLoaded ? 'inline-block' : 'none';
+    }
+
+    // Active download progress
+    if (el.downloadBanner) {
+      if (u.download && u.download.active) {
+        el.downloadBanner.style.display = 'block';
+        el.downloadTitle.textContent = `Baixando modelo: ${u.download.name}`;
+        const pct = Math.round(u.download.percent || 0);
+        el.downloadPercent.textContent = `${pct}%`;
+        el.downloadBarFill.style.width = `${pct}%`;
+      } else {
+        el.downloadBanner.style.display = 'none';
+      }
+    }
   } catch {
     el.resourceText.textContent = 'CPU / RAM: unavailable';
+    if (el.unloadModelsBtn) el.unloadModelsBtn.style.display = 'none';
+    if (el.downloadBanner) el.downloadBanner.style.display = 'none';
   }
+}
+
+if (el.unloadModelsBtn) {
+  el.unloadModelsBtn.addEventListener('click', async () => {
+    el.unloadModelsBtn.disabled = true;
+    el.unloadModelsBtn.textContent = 'Liberando…';
+    try {
+      await invoke('unload_models');
+      await refreshResourceUsage();
+    } catch (err) {
+      console.error('Failed to unload models', err);
+    } finally {
+      el.unloadModelsBtn.disabled = false;
+      el.unloadModelsBtn.textContent = 'Liberar Memória';
+    }
+  });
 }
 
 el.form.addEventListener('submit', async (e) => {

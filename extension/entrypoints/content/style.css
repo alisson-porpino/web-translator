@@ -53,18 +53,56 @@
   bottom: 16px;
   z-index: 2147483647;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 14px;
-  background: rgba(20, 20, 22, 0.92);
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(20, 20, 22, 0.95);
   color: #fff;
   font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-width: 220px;
+  backdrop-filter: blur(8px);
+}
+
+.mwt-progress-panel__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mwt-progress-panel__text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .mwt-progress-panel__text {
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.mwt-progress-panel__detail {
+  font-size: 11px;
+  color: #fb923c;
+  white-space: nowrap;
+}
+
+.mwt-progress-panel__bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mwt-progress-panel__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f97316, #fb923c);
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }
 
 .mwt-progress-panel__stop {
@@ -76,6 +114,7 @@
   border-radius: 6px;
   padding: 5px 10px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .mwt-progress-panel__stop:hover {
@@ -253,3 +292,97 @@
 .mwt-review-row__status--cancelled {
   color: #9a9a9a;
 }
+
+/* --- Toast notifications --------------------------------------------- */
+.mwt-toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.mwt-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 320px;
+  padding: 12px 14px;
+  background: rgba(24, 24, 27, 0.96);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  animation: mwt-slide-in 0.25s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.mwt-toast--dismissing {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.mwt-toast--error {
+  border-left: 4px solid #ef4444;
+}
+
+.mwt-toast--info {
+  border-left: 4px solid #3b82f6;
+}
+
+.mwt-toast__icon {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.mwt-toast__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mwt-toast__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+}
+
+.mwt-toast__message {
+  font-size: 12px;
+  color: #d1d5db;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.mwt-toast__close {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.mwt-toast__close:hover {
+  color: #fff;
+}
+
+@keyframes mwt-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+

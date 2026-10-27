@@ -26,6 +26,9 @@ interface CreateJobResponse {
 
 interface JobStatusResponse {
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
+  stage?: string;
+  progressMessage?: string;
+  progressPercent?: number;
   translatedImageUrl?: string;
   errorCode?: string;
   errorMessage?: string;
@@ -48,8 +51,15 @@ async function createJob(
   return res.json();
 }
 
-async function pollJob(serverUrl: string, jobId: string, shouldStop: () => boolean): Promise<JobStatusResponse> {
+async function pollJob(
+  serverUrl: string,
+  jobId: string,
+  shouldStop: () => boolean,
+  tabId?: number,
+  imageUrl?: string,
+): Promise<JobStatusResponse> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  let lastProgressMsg = '';
   while (Date.now() < deadline) {
     if (shouldStop()) {
       return { status: 'failed', errorCode: 'CANCELLED', errorMessage: 'Stopped by user.' };
@@ -60,6 +70,20 @@ async function pollJob(serverUrl: string, jobId: string, shouldStop: () => boole
       throw new Error(`pollJob failed (${res.status}): ${text}`);
     }
     const data: JobStatusResponse = await res.json();
+    if (data.progressMessage && data.progressMessage !== lastProgressMsg) {
+      lastProgressMsg = data.progressMessage;
+      if (tabId !== undefined && imageUrl) {
+        browser.tabs
+          .sendMessage(tabId, {
+            type: 'JOB_PROGRESS',
+            imageUrl,
+            stage: data.stage,
+            progressMessage: data.progressMessage,
+            progressPercent: data.progressPercent,
+          })
+          .catch(() => {});
+      }
+    }
     if (data.status === 'succeeded' || data.status === 'failed') return data;
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
@@ -128,9 +152,14 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
       pageUrl: req.pageUrl,
       targetLang: settings.targetLang,
     }));
-    console.log(LOG, 'job created', jobId);
     if (tabId !== undefined) jobTabs.set(jobId, tabId);
-    const result = await pollJob(settings.serverUrl, jobId, () => stoppedJobs.has(jobId!));
+    const result = await pollJob(
+      settings.serverUrl,
+      jobId,
+      () => stoppedJobs.has(jobId!),
+      tabId,
+      req.imageUrl,
+    );
     console.log(LOG, 'job finished', jobId, result);
     if (result.errorCode === 'CANCELLED') {
       return { ok: false, errorCode: 'CANCELLED', errorMessage: result.errorMessage, cancelled: true };

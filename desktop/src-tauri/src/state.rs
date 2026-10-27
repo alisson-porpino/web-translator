@@ -12,6 +12,12 @@ use crate::usage::UsageTracker;
 pub struct JobStatus {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_percent: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub translated_image_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
@@ -29,6 +35,13 @@ pub struct AppState {
     pub jobs: JobsMap,
     pub cache_dir: PathBuf,
     pub google_usage: Arc<UsageTracker>,
+    /// How many jobs are actively queued or in-flight across all engines.
+    /// Used by the idle timer to know when the server is fully quiet so it
+    /// can unload heavy ML models from memory after a cooldown period.
+    pub active_jobs: Arc<std::sync::atomic::AtomicUsize>,
+    /// Cancellation channel for a pending idle-unload timer. If a new job
+    /// arrives while the idle countdown is ticking, this aborts the unload.
+    pub idle_timer_cancel: Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
     /// Every "translate this page" scan fires one job per detected image at
     /// once, with no limit -- a page with 20+ panels used to spawn 20+
     /// concurrent local-engine pipelines, all fighting over the same
@@ -44,24 +57,8 @@ pub struct AppState {
     pub cancelled_jobs: Arc<Mutex<HashSet<String>>>,
     /// Koharu's own cancellation handle (`koharu_pipeline::StopToken`) for
     /// each job currently running the "local" (Koharu) engine, keyed by
-    /// job id. `cancel_job` calls `.stop()` on this (in addition to
-    /// recording the job in `cancelled_jobs` above) so a job already
-    /// mid-pipeline can actually be interrupted instead of always running
-    /// to completion in the background and holding `local_engine_slots`'
-    /// one permit hostage until it finishes on its own -- see
-    /// engines/koharu_engine.rs's `translate` for where this gets read.
-    /// Koharu checks it at each pipeline stage boundary, not mid-stage, so
-    /// this isn't instant, but it's a real interrupt now instead of never.
+    /// job id.
     pub running_stops: Arc<Mutex<HashMap<String, koharu_pipeline::StopToken>>>,
-    /// The local HTTP server (http_server.rs) the browser extension talks
-    /// to is *not* started automatically on launch -- a native app on this
-    /// machine could already be using the configured port, and binding it
-    /// unconditionally on every startup would fail silently (or steal the
-    /// port from something else) with no way for the user to tell what
-    /// happened. Instead it's started explicitly (the `start_server`
-    /// command) and this holds the running instance's shutdown handle
-    /// (`None` when stopped) so `stop_server`/`get_server_status` have
-    /// something to act on. See main.rs's `start_server`/`stop_server`.
     pub server: Arc<Mutex<Option<ServerHandle>>>,
 }
 

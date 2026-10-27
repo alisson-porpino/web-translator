@@ -25,10 +25,25 @@
         <span class="dot" style="background:#9a9a9a"></span>
         <span id="usageText">Google usage today: —</span>
       </div>
-      <div class="status" id="resourceStatus">
-        <span class="dot" style="background:#9a9a9a"></span>
-        <span id="resourceText">CPU / RAM: —</span>
+      <div class="status status--resources" id="resourceStatus">
+        <span class="dot" id="resourceDot" style="background:#9a9a9a"></span>
+        <div class="resource-info" style="flex:1">
+          <div id="resourceText" style="font-weight: 500">CPU: — · App RAM: —</div>
+          <div id="resourceDetailText" style="font-size: 11px; color: var(--muted); margin-top: 2px">Sistema: —</div>
+        </div>
+        <button type="button" id="unloadModelsBtn" class="status__btn" title="Descarrega os modelos da memória imediatamente" style="display:none">Liberar Memória</button>
       </div>
+    </div>
+
+    <div class="download-banner" id="downloadBanner" style="display:none; margin-bottom: 14px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+        <span style="font-weight:600; font-size:12px;">📥 <span id="downloadTitle">Baixando modelo...</span></span>
+        <span id="downloadPercent" style="font-weight:600; font-size:12px; color: var(--accent);">0%</span>
+      </div>
+      <div style="height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
+        <div id="downloadBarFill" style="height: 100%; width: 0%; background: var(--accent); transition: width 0.3s ease;"></div>
+      </div>
+      <p style="margin: 6px 0 0; font-size: 11px; color: var(--muted);">Este download acontece apenas no primeiro uso. As próximas traduções serão locais e instantâneas.</p>
     </div>
 
     <fieldset class="extension-install">

@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -22,6 +24,36 @@ pub struct CreateJobRequest {
     pub target_lang: String,
 }
 
+struct ActiveJobGuard {
+    state: AppState,
+}
+
+impl Drop for ActiveJobGuard {
+    fn drop(&mut self) {
+        let remaining = self.state.active_jobs.fetch_sub(1, Ordering::SeqCst) - 1;
+        if remaining == 0 {
+            // When all translation jobs across the server have finished,
+            // schedule an idle cooldown (60 seconds) before unloading models.
+            let (tx, mut rx) = tokio::sync::oneshot::channel();
+            self.state.idle_timer_cancel.lock().unwrap().replace(tx);
+            let state_clone = self.state.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::select! {
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {
+                        if state_clone.active_jobs.load(Ordering::SeqCst) == 0 {
+                            tracing::info!("Idle cooldown reached (60s with 0 active jobs). Unloading models from RAM...");
+                            let _ = engines::koharu_engine::unload().await;
+                        }
+                    }
+                    _ = &mut rx => {
+                        // Cancelled by a newly arrived job
+                    }
+                }
+            });
+        }
+    }
+}
+
 pub fn create_job(state: AppState, req: CreateJobRequest) -> String {
     let job_id = Uuid::new_v4().simple().to_string();
     state
@@ -29,6 +61,11 @@ pub fn create_job(state: AppState, req: CreateJobRequest) -> String {
         .lock()
         .unwrap()
         .insert(job_id.clone(), JobStatus { status: "queued".into(), ..Default::default() });
+
+    state.active_jobs.fetch_add(1, Ordering::SeqCst);
+    if let Some(cancel_tx) = state.idle_timer_cancel.lock().unwrap().take() {
+        let _ = cancel_tx.send(());
+    }
 
     let job_id_clone = job_id.clone();
     tauri::async_runtime::spawn(async move {
@@ -133,6 +170,7 @@ fn engine_order(preference: &str) -> &'static [&'static str] {
 }
 
 async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
+    let _active_guard = ActiveJobGuard { state: state.clone() };
     set_status(&state, &job_id, JobStatus { status: "processing".into(), ..Default::default() });
 
     let client = reqwest::Client::new();
@@ -165,27 +203,6 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
         format!("{:x}", hasher.finalize())
     };
     let app_settings = settings::load(&state.app_handle);
-    // Keyed on engine_preference + a version tag for the local pipeline
-    // (bumped whenever its models/behavior change materially -- see
-    // engines::koharu_engine::ENGINE_VERSION) so switching engines or
-    // upgrading the local models can never silently serve a stale result
-    // from a previous engine/model generation. Pure image-hash keying
-    // caused exactly that confusion once already: re-testing the same
-    // page after swapping the local translation model kept returning the
-    // old model's cached output.
-    //
-    // ENGINE_VERSION ("koharu-v1") replaced the old engine's
-    // PIPELINE_VERSION ("v7-inpaint-coreml-fix") here on 2026-10-24, when
-    // this app's local engine switched from its own onnxruntime +
-    // llama-cpp-2 pipeline to Koharu's (see specs/DIRETRIZES.md's
-    // "Migração em andamento" section) -- a different tag namespace
-    // entirely, since these are two different engines, not successive
-    // versions of the same one; any filename under the old tag is from
-    // the retired engine and must never be matched again.
-    // Also folds in detection_score_threshold (only affects the Google
-    // engine's region detection -- the Koharu engine does its own
-    // detection, unaffected by this setting) so changing it can't
-    // silently serve a stale result from before the change either.
     let cache_filename = format!(
         "{}_{}_{}_{}_{:.2}.png",
         sha256_hex,
@@ -217,27 +234,28 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
         }
         let result = match *engine_name {
             "local" => {
-                // Back to "queued" (from "processing", set at the top of
-                // this function) while waiting for a slot, so a client
-                // polling this job can tell "still in line behind other
-                // images" apart from "actually running".
                 set_status(&state, &job_id, JobStatus { status: "queued".into(), ..Default::default() });
                 let _permit =
                     state.local_engine_slots.clone().acquire_owned().await.expect("semaphore is never closed");
-                // Re-check: may have been cancelled while waiting in line
-                // for a slot -- no point starting a multi-minute local
-                // translation for a job nobody's polling anymore.
                 if is_cancelled(&state, &job_id) {
                     return;
                 }
                 set_status(&state, &job_id, JobStatus { status: "processing".into(), ..Default::default() });
                 let stop = koharu_pipeline::StopToken::default();
                 state.running_stops.lock().unwrap().insert(job_id.clone(), stop.clone());
+
+                let state_p = state.clone();
+                let job_id_p = job_id.clone();
+                let on_progress = Arc::new(move |msg: String, pct: Option<f32>| {
+                    update_progress(&state_p, &job_id_p, msg, pct);
+                });
+
                 let result = engines::koharu_engine::translate(
                     state.app_handle.clone(),
                     image_bytes.clone(),
                     &req.target_lang,
                     stop,
+                    Some(on_progress),
                 )
                 .await;
                 state.running_stops.lock().unwrap().remove(&job_id);
@@ -306,3 +324,13 @@ fn cache_url(settings: &Settings, filename: &str) -> String {
 fn set_status(state: &AppState, job_id: &str, status: JobStatus) {
     state.jobs.lock().unwrap().insert(job_id.to_string(), status);
 }
+
+fn update_progress(state: &AppState, job_id: &str, message: String, percent: Option<f32>) {
+    if let Some(status) = state.jobs.lock().unwrap().get_mut(job_id) {
+        status.progress_message = Some(message);
+        if let Some(p) = percent {
+            status.progress_percent = Some(p);
+        }
+    }
+}
+
