@@ -24,31 +24,27 @@ pub const ENGINE_VERSION: &str = "koharu-v1";
 /// unloaded on idle timeout or user request to reclaim RAM/VRAM.
 static PIPELINE: TokioMutex<Option<Pipeline>> = TokioMutex::const_new(None);
 
-/// Returns true if the ML pipeline models are currently loaded in RAM.
+/// Returns true if the ML pipeline models are currently loaded in RAM/VRAM.
 pub async fn is_loaded() -> bool {
-    PIPELINE.lock().await.is_some()
+    let guard = PIPELINE.lock().await;
+    guard.as_ref().map(|p| p.is_loaded()).unwrap_or(false)
 }
 
-/// Explicitly unloads all pipeline models from memory and triggers an OS-level
-/// memory trim on Windows (EmptyWorkingSet) to immediately return allocated
-/// physical RAM to the operating system.
+/// Explicitly unloads all stage models (detection, OCR, Gemma LLM, inpainting)
+/// from GPU VRAM and System RAM.
 pub async fn unload() -> bool {
-    let mut guard = PIPELINE.lock().await;
-    let was_loaded = guard.take().is_some();
-    if was_loaded {
-        tracing::info!("koharu_engine: pipeline unloaded from memory");
-        #[cfg(windows)]
-        unsafe {
-            use windows::Win32::System::ProcessStatus::EmptyWorkingSet;
-            use windows::Win32::System::Threading::GetCurrentProcess;
-            let _ = EmptyWorkingSet(GetCurrentProcess());
-        }
+    let guard = PIPELINE.lock().await;
+    if let Some(pipe) = guard.as_ref() {
+        let unloaded = pipe.unload();
+        tracing::info!("koharu_engine: pipeline stage models unloaded from memory (unloaded={unloaded})");
         #[cfg(target_os = "linux")]
         unsafe {
             libc::malloc_trim(0);
         }
+        unloaded
+    } else {
+        false
     }
-    was_loaded
 }
 
 async fn pipeline(models_dir: Option<&str>) -> Result<Pipeline, String> {

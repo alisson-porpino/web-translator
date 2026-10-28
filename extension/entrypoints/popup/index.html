@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Manga Web Translator</title>
@@ -161,11 +161,11 @@
   <body>
     <div class="header-row">
       <h1>Manga Web Translator</h1>
-      <button type="button" id="openSettings" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+      <button type="button" id="openSettings" class="icon-btn" title="Configurações" aria-label="Configurações">⚙</button>
     </div>
     <div class="connection-row">
       <span class="connection-dot" id="connectionDot"></span>
-      <span id="connectionText">Checking connection…</span>
+      <span id="connectionText">Verificando conexão…</span>
     </div>
 
     <!-- Shown once, the first time the popup is ever opened -- same two
@@ -175,40 +175,40 @@
          never shows again (see lib/settings.ts). -->
     <section id="setupView" hidden>
       <p class="hint" style="margin-top:10px">
-        Connect this extension to the desktop app first. It defaults to
-        <code>127.0.0.1:8000</code> -- change it here only if you picked a different port there.
+        Conecte esta extensão ao aplicativo desktop. O padrão é
+        <code>127.0.0.1:8000</code> — altere apenas se você configurou uma porta diferente no app.
       </p>
 
-      <label for="setupServerUrl">Desktop app server URL</label>
+      <label for="setupServerUrl">URL do servidor desktop</label>
       <input id="setupServerUrl" type="text" placeholder="http://127.0.0.1:8000" />
 
-      <label for="setupTargetLang">Target language</label>
+      <label for="setupTargetLang">Idioma de destino</label>
       <select id="setupTargetLang">
-        <option value="en">English</option>
         <option value="pt">Português</option>
+        <option value="en">English</option>
         <option value="es">Español</option>
       </select>
 
-      <button type="button" id="setupSave" class="primary">Get started</button>
+      <button type="button" id="setupSave" class="primary">Começar</button>
       <div id="setupStatus"></div>
     </section>
 
     <!-- Default view after setup is done. -->
     <section id="mainView" hidden>
-      <h2>This tab</h2>
+      <h2>Esta aba</h2>
       <div id="currentSite">—</div>
       <div class="toggle-row">
-        <span>Auto-translate on this site</span>
+        <span>Traduzir automaticamente neste site</span>
         <input id="siteEnabled" type="checkbox" style="width:auto" />
       </div>
-      <p class="hint">Off by default everywhere. Turning this on only affects this site -- never other tabs.</p>
-      <button type="button" id="translateNow">Translate this page now</button>
+      <p class="hint">Desativado por padrão. Ativar isso afeta apenas este site — nunca outras abas.</p>
+      <button type="button" id="translateNow">Traduzir esta página agora</button>
       <div id="manualStatus"></div>
 
       <hr />
-      <h2>Desktop app resources</h2>
+      <h2>Recursos do app desktop</h2>
       <div id="resourceUsage" style="font-size:11px;color:#bbb;line-height:1.5;white-space:pre-line">
-        Connecting…
+        Conectando…
       </div>
       <div id="popupDownloadBanner" style="display:none; margin-top:8px; padding:8px; background:rgba(255,255,255,0.06); border-radius:6px; border:1px solid rgba(255,255,255,0.1)">
         <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px">
@@ -227,20 +227,20 @@
 
     <!-- Reached via the gear icon; same fields the setup view has. -->
     <section id="settingsView" hidden>
-      <label for="serverUrl">Desktop app server URL</label>
+      <label for="serverUrl">URL do servidor desktop</label>
       <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" />
-      <p class="hint">Engine (local/Google) and API key are configured in the desktop app itself.</p>
+      <p class="hint">O motor de tradução (local/Google) e chaves de API são configurados no aplicativo desktop.</p>
 
-      <label for="targetLang">Target language</label>
+      <label for="targetLang">Idioma de destino</label>
       <select id="targetLang">
-        <option value="en">English</option>
         <option value="pt">Português</option>
+        <option value="en">English</option>
         <option value="es">Español</option>
       </select>
 
-      <button type="button" id="save" class="primary">Save</button>
+      <button type="button" id="save" class="primary">Salvar</button>
       <div id="status"></div>
-      <button type="button" id="backToMain" class="secondary">← Back</button>
+      <button type="button" id="backToMain" class="secondary">← Voltar</button>
     </section>
 
     <script type="module" src="./main.ts"></script>

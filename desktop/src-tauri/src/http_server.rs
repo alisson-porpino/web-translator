@@ -109,7 +109,8 @@ async fn get_resource_usage(State(state): State<AppState>) -> impl IntoResponse 
 }
 
 /// Explicit endpoint to unload ML models from memory on demand.
-async fn unload_pipeline() -> impl IntoResponse {
+async fn unload_pipeline(State(state): State<AppState>) -> impl IntoResponse {
+    jobs::cancel_all_jobs(&state);
     let unloaded = crate::engines::koharu_engine::unload().await;
     Json(serde_json::json!({ "ok": true, "unloaded": unloaded })).into_response()
 }

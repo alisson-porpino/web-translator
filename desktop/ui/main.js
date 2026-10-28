@@ -59,7 +59,7 @@ function renderFontStack() {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.placeholder = i === 0 ? 'Main lettering font .ttf/.otf path' : 'Fallback font .ttf/.otf path';
+    input.placeholder = i === 0 ? 'Caminho da fonte principal (.ttf/.otf)' : 'Caminho da fonte secundária (.ttf/.otf)';
     input.value = path;
     input.addEventListener('input', () => {
       currentFontPaths[i] = input.value;
@@ -69,7 +69,7 @@ function renderFontStack() {
     const up = document.createElement('button');
     up.type = 'button';
     up.textContent = '↑';
-    up.title = 'Move up (tried earlier)';
+    up.title = 'Mover para cima (prioridade maior)';
     up.disabled = i === 0;
     up.addEventListener('click', () => {
       [currentFontPaths[i - 1], currentFontPaths[i]] = [currentFontPaths[i], currentFontPaths[i - 1]];
@@ -80,7 +80,7 @@ function renderFontStack() {
     const down = document.createElement('button');
     down.type = 'button';
     down.textContent = '↓';
-    down.title = 'Move down (tried later)';
+    down.title = 'Mover para baixo (prioridade menor)';
     down.disabled = i === currentFontPaths.length - 1;
     down.addEventListener('click', () => {
       [currentFontPaths[i], currentFontPaths[i + 1]] = [currentFontPaths[i + 1], currentFontPaths[i]];
@@ -91,7 +91,7 @@ function renderFontStack() {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = '×';
-    remove.title = 'Remove';
+    remove.title = 'Remover';
     remove.addEventListener('click', () => {
       currentFontPaths.splice(i, 1);
       renderFontStack();
@@ -110,7 +110,7 @@ el.browseModelsDirBtn.addEventListener('click', async () => {
     }
   } catch (err) {
     el.feedback.classList.add('error');
-    el.feedback.textContent = `Could not open folder picker: ${err}`;
+    el.feedback.textContent = `Não foi possível abrir o seletor de pastas: ${err}`;
   }
 });
 
@@ -161,16 +161,16 @@ async function refreshServerStatus() {
     const status = await invoke('get_server_status');
     if (status.running) {
       el.serverDot.style.background = 'var(--ok)';
-      el.serverStatusText.textContent = `Running on http://127.0.0.1:${status.port}`;
-      el.serverToggleBtn.textContent = 'Stop';
+      el.serverStatusText.textContent = `Servidor ativo em http://127.0.0.1:${status.port}`;
+      el.serverToggleBtn.textContent = 'Parar';
     } else {
       el.serverDot.style.background = '#9a9a9a';
-      el.serverStatusText.textContent = 'Server stopped';
-      el.serverToggleBtn.textContent = 'Start';
+      el.serverStatusText.textContent = 'Servidor parado';
+      el.serverToggleBtn.textContent = 'Iniciar';
     }
   } catch {
     el.serverDot.style.background = 'var(--bad)';
-    el.serverStatusText.textContent = 'Server status unavailable';
+    el.serverStatusText.textContent = 'Status do servidor indisponível';
   }
 }
 
@@ -194,13 +194,13 @@ el.serverToggleBtn.addEventListener('click', async () => {
 
 async function installExtension(target) {
   el.extensionInstallFeedback.classList.remove('error');
-  el.extensionInstallFeedback.textContent = 'Opening…';
+  el.extensionInstallFeedback.textContent = 'Abrindo…';
   el.extensionInstallSteps.hidden = true;
   el.extensionStepChrome.hidden = true;
   el.extensionStepFirefox.hidden = true;
   try {
     await invoke('install_extension', { target });
-    el.extensionInstallFeedback.textContent = 'Folder opened -- follow the steps below.';
+    el.extensionInstallFeedback.textContent = 'Pasta aberta — siga os passos abaixo.';
     el.extensionInstallSteps.hidden = false;
     (target === 'chrome' ? el.extensionStepChrome : el.extensionStepFirefox).hidden = false;
   } catch (err) {
@@ -228,7 +228,7 @@ function renderQuantizationOptions(modelId) {
   for (const q of model?.quantizations ?? []) {
     const opt = document.createElement('option');
     opt.value = q.id;
-    opt.textContent = q.downloaded ? q.name : `${q.name} (will download)`;
+    opt.textContent = q.downloaded ? q.name : `${q.name} (será baixado)`;
     el.translationQuantization.appendChild(opt);
   }
 }
@@ -244,7 +244,7 @@ async function loadPipelineModels() {
     el.inpaintingModel.value = models.inpainting;
   } catch (err) {
     el.pipelineModelsFeedback.classList.add('error');
-    el.pipelineModelsFeedback.textContent = `Could not read Koharu's current model selection: ${err}`;
+    el.pipelineModelsFeedback.textContent = `Não foi possível ler a seleção de modelos do Koharu: ${err}`;
   }
 
   try {
@@ -268,15 +268,15 @@ async function loadPipelineModels() {
       el.translationQuantization.value = selection.quantization;
     }
   } catch (err) {
-    el.translationModel.innerHTML = '<option value="">Could not load</option>';
+    el.translationModel.innerHTML = '<option value="">Não foi possível carregar</option>';
     el.pipelineModelsFeedback.classList.add('error');
-    el.pipelineModelsFeedback.textContent = `Could not read Koharu's translation model catalog: ${err}`;
+    el.pipelineModelsFeedback.textContent = `Não foi possível ler o catálogo de tradução do Koharu: ${err}`;
   }
 }
 
 el.savePipelineModelsBtn.addEventListener('click', async () => {
   el.pipelineModelsFeedback.classList.remove('error');
-  el.pipelineModelsFeedback.textContent = 'Saving…';
+  el.pipelineModelsFeedback.textContent = 'Salvando…';
   try {
     await invoke('set_pipeline_models', { ocr: el.ocrModel.value, inpainting: el.inpaintingModel.value });
     if (el.translationModel.value) {
@@ -285,10 +285,10 @@ el.savePipelineModelsBtn.addEventListener('click', async () => {
         quantization: el.translationQuantization.value || null,
       });
     }
-    el.pipelineModelsFeedback.textContent = 'Saved. The next translation job will use it.';
+    el.pipelineModelsFeedback.textContent = 'Salvo com sucesso! O próximo trabalho de tradução utilizará esta configuração.';
   } catch (err) {
     el.pipelineModelsFeedback.classList.add('error');
-    el.pipelineModelsFeedback.textContent = `Could not save: ${err}`;
+    el.pipelineModelsFeedback.textContent = `Não foi possível salvar: ${err}`;
   }
   setTimeout(() => {
     el.pipelineModelsFeedback.textContent = '';
@@ -298,10 +298,10 @@ el.savePipelineModelsBtn.addEventListener('click', async () => {
 async function refreshUsage() {
   try {
     const { count, cap } = await invoke('get_google_usage');
-    el.usageText.textContent = cap > 0 ? `Google usage today: ${count}/${cap} requests` : `Google usage today: ${count} requests (no cap set)`;
+    el.usageText.textContent = cap > 0 ? `Uso diário do Google: ${count}/${cap} requisições` : `Uso diário do Google: ${count} requisições (sem limite)`;
     el.usageDot.style.background = cap > 0 && count >= cap ? '#dc2626' : cap > 0 && count >= cap * 0.8 ? '#f59e0b' : '#16a34a';
   } catch {
-    el.usageText.textContent = 'Google usage today: unavailable';
+    el.usageText.textContent = 'Uso diário do Google: indisponível';
   }
 }
 
@@ -316,14 +316,14 @@ async function refreshResourceUsage() {
         ? ` · VRAM: ${u.vramUsedMb}/${u.vramTotalMb || 0} MB`
         : '';
 
-    el.resourceText.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · App RAM: ${procMem}${gpuText}`;
+    el.resourceText.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · RAM do App: ${procMem}${gpuText}`;
 
     const sysUsed = u.systemUsedMemoryMb ?? u.usedMemoryMb;
     const sysTotal = u.systemTotalMemoryMb ?? u.totalMemoryMb;
-    const modelStatus = u.modelsLoaded ? 'Modelos em RAM: Ativos' : 'Modelos: Desalocados (Idle)';
-    const jobsInfo = u.activeJobs > 0 ? ` · ${u.activeJobs} job(s) em processamento` : '';
+    const modelStatus = u.modelsLoaded ? 'Modelos em RAM: Ativos' : 'Modelos: Desalocados (Em espera)';
+    const jobsInfo = u.activeJobs > 0 ? ` · ${u.activeJobs} tarefa(s) em processamento` : '';
     if (el.resourceDetailText) {
-      el.resourceDetailText.textContent = `Sistema: ${sysUsed}/${sysTotal} MB · ${modelStatus}${jobsInfo}`;
+      el.resourceDetailText.textContent = `RAM do Sistema: ${sysUsed}/${sysTotal} MB · ${modelStatus}${jobsInfo}`;
     }
 
     el.resourceDot.style.background = u.modelsLoaded ? '#3b82f6' : '#16a34a';
@@ -344,7 +344,7 @@ async function refreshResourceUsage() {
       }
     }
   } catch {
-    el.resourceText.textContent = 'CPU / RAM: unavailable';
+    el.resourceText.textContent = 'CPU / RAM: indisponível';
     if (el.unloadModelsBtn) el.unloadModelsBtn.style.display = 'none';
     if (el.downloadBanner) el.downloadBanner.style.display = 'none';
   }
@@ -369,13 +369,13 @@ if (el.unloadModelsBtn) {
 el.form.addEventListener('submit', async (e) => {
   e.preventDefault();
   el.feedback.classList.remove('error');
-  el.feedback.textContent = 'Saving…';
+  el.feedback.textContent = 'Salvando…';
   try {
     await invoke('save_settings', { settings: readSettings() });
-    el.feedback.textContent = 'Saved. New jobs will use these settings right away.';
+    el.feedback.textContent = 'Salvo com sucesso! As novas configurações já estão valendo.';
   } catch (err) {
     el.feedback.classList.add('error');
-    el.feedback.textContent = `Could not save: ${err}`;
+    el.feedback.textContent = `Não foi possível salvar: ${err}`;
   }
   setTimeout(() => {
     el.feedback.textContent = '';

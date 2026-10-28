@@ -156,7 +156,7 @@ function ensureProgressPanel(): void {
   progressStopBtn = document.createElement('button');
   progressStopBtn.className = 'mwt-progress-panel__stop';
   progressStopBtn.type = 'button';
-  progressStopBtn.textContent = 'Stop';
+  progressStopBtn.textContent = 'Parar';
   progressStopBtn.addEventListener('click', stopAllTranslations);
   row.appendChild(progressStopBtn);
 
@@ -187,7 +187,7 @@ function updateProgressPanel(): void {
   progressPanel!.hidden = false;
 
   if (totalFinished >= totalQueued) {
-    progressText!.textContent = `Translated ${totalFinished}/${totalQueued}.`;
+    progressText!.textContent = `Traduzido ${totalFinished}/${totalQueued}.`;
     if (progressDetailText) progressDetailText.hidden = true;
     if (progressProgressBar) progressProgressBar.hidden = true;
     currentProgressDetail = '';
@@ -203,7 +203,7 @@ function updateProgressPanel(): void {
   } else {
     const running = runningTranslations;
     progressText!.textContent =
-      `Translating ${totalFinished}/${totalQueued}${running > 0 ? ` (${running} running)` : ''}…`;
+      `Traduzindo ${totalFinished}/${totalQueued}${running > 0 ? ` (${running} em andamento)` : ''}…`;
     progressStopBtn!.disabled = false;
 
     if (currentProgressDetail) {
@@ -281,7 +281,7 @@ function ensureReviewPanel(): void {
   reviewSelectAllBtn = document.createElement('button');
   reviewSelectAllBtn.type = 'button';
   reviewSelectAllBtn.className = 'mwt-review-panel__select-all';
-  reviewSelectAllBtn.title = 'Select/deselect all';
+  reviewSelectAllBtn.title = 'Selecionar/desmarcar todos';
   reviewSelectAllBtn.addEventListener('click', () => {
     const next = !reviewRows.every((r) => r.include);
     for (const row of reviewRows) {
@@ -323,11 +323,11 @@ function scrollToImage(img: HTMLImageElement): void {
 }
 
 const ROW_STATUS_LABEL: Record<Exclude<ReviewRowState, 'review'>, string> = {
-  queued: 'Queued…',
-  translating: 'Translating…',
-  done: 'Done',
-  error: 'Failed',
-  cancelled: 'Cancelled',
+  queued: 'Na fila…',
+  translating: 'Traduzindo…',
+  done: 'Concluído',
+  error: 'Falhou',
+  cancelled: 'Cancelado',
 };
 
 function updateRowStatusUI(row: ReviewRow): void {
@@ -423,7 +423,7 @@ async function pollReviewResources(): Promise<void> {
     }
     reviewResourceEl.textContent = parts.join(' · ');
   } catch {
-    reviewResourceEl.textContent = 'Desktop app resources: unavailable';
+    reviewResourceEl.textContent = 'Recursos do app desktop: indisponíveis';
   }
 }
 
@@ -447,22 +447,22 @@ function updateReviewHeader(): void {
   if (translating) {
     const done = reviewRows.filter((r) => r.state !== 'queued' && r.state !== 'translating').length;
     const allDone = done >= reviewRows.length;
-    reviewHeaderText.textContent = allDone ? `Translated ${done}/${reviewRows.length}.` : `Translating ${done}/${reviewRows.length}…`;
+    reviewHeaderText.textContent = allDone ? `Traduzido ${done}/${reviewRows.length}.` : `Traduzindo ${done}/${reviewRows.length}…`;
     reviewConfirmBtn.hidden = true;
     reviewSelectAllBtn.hidden = true;
     // Nothing left to stop once every row reached a terminal state.
     reviewCancelBtn.hidden = allDone;
-    reviewCancelBtn.textContent = 'Stop';
+    reviewCancelBtn.textContent = 'Parar';
   } else {
     const included = reviewRows.filter((r) => r.include).length;
-    reviewHeaderText.textContent = `Found ${reviewRows.length} image(s)`;
+    reviewHeaderText.textContent = `${reviewRows.length} imagem(ns) encontrada(s)`;
     reviewConfirmBtn.hidden = false;
-    reviewConfirmBtn.textContent = `Translate (${included})`;
+    reviewConfirmBtn.textContent = `Traduzir (${included})`;
     reviewConfirmBtn.disabled = included === 0;
     reviewSelectAllBtn.hidden = false;
-    reviewSelectAllBtn.textContent = included === reviewRows.length && reviewRows.length > 0 ? 'None' : 'All';
+    reviewSelectAllBtn.textContent = included === reviewRows.length && reviewRows.length > 0 ? 'Nenhum' : 'Todos';
     reviewCancelBtn.hidden = false;
-    reviewCancelBtn.textContent = 'Cancel';
+    reviewCancelBtn.textContent = 'Cancelar';
   }
 }
 
@@ -557,7 +557,7 @@ function stopAllTranslations(): void {
     if (wrapper?.classList.contains('mwt-wrapper')) {
       wrapper.classList.remove('mwt-border--pending');
       wrapper.classList.add('mwt-border--cancelled');
-      wrapper.title = 'Cancelled.';
+      wrapper.title = 'Cancelado.';
     }
     // Still-queued review rows never reach pumpTranslationQueue's own
     // finally-block status update (that only fires for ones it actually
@@ -645,7 +645,7 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
     const wrapper = wrapImage(img);
     console.warn(LOG, 'skipping: unsupported image source', imageUrl);
     wrapper.classList.add('mwt-border--error');
-    wrapper.title = `Unsupported image source: ${imageUrl || '(empty)'}`;
+    wrapper.title = `Formato de imagem não suportado: ${imageUrl || '(vazio)'}`;
     return;
   }
 
@@ -728,7 +728,7 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
 
   if (!response.ok || !response.translatedImageUrl) {
     wrapper.classList.add(response.cancelled ? 'mwt-border--cancelled' : 'mwt-border--error');
-    wrapper.title = response.cancelled ? 'Cancelled.' : (response.errorMessage ?? response.errorCode ?? 'Translation failed');
+    wrapper.title = response.cancelled ? 'Cancelado.' : (response.errorMessage ?? response.errorCode ?? 'Falha na tradução');
     if (!response.cancelled) {
       let friendlyMsg = response.errorMessage ?? response.errorCode ?? 'Falha ao traduzir imagem.';
       if (response.errorCode === 'SERVER_CONNECTION_ERROR') {
@@ -744,14 +744,14 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
   const overlay = document.createElement('img');
   overlay.className = 'mwt-overlay';
   overlay.src = response.translatedImageUrl;
-  overlay.alt = `${img.alt ?? ''} (translated)`;
+  overlay.alt = `${img.alt ?? ''} (traduzido)`;
   wrapper.appendChild(overlay);
 
   const toggle = document.createElement('button');
   toggle.className = 'mwt-toggle';
   toggle.type = 'button';
-  toggle.textContent = 'EN/原';
-  toggle.title = 'Toggle original / translated';
+  toggle.textContent = 'TR/原';
+  toggle.title = 'Alternar original / tradução';
   toggle.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -768,7 +768,7 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
 // too keeps a slow page's backlog from ever building past a few images
 // deep, so each individual job's wait before it actually starts stays
 // short and predictable.
-const MAX_CONCURRENT_TRANSLATIONS = 3;
+const MAX_CONCURRENT_TRANSLATIONS = 1;
 let runningTranslations = 0;
 const translationQueue: HTMLImageElement[] = [];
 
@@ -885,6 +885,13 @@ export default defineContentScript({
     });
 
     if (isAutoEnabledHere()) scanForCandidates();
+
+    window.addEventListener('pagehide', () => {
+      stopAllTranslations();
+    });
+    window.addEventListener('beforeunload', () => {
+      stopAllTranslations();
+    });
 
     const observer = new MutationObserver(() => scheduleScan());
     observer.observe(document.documentElement, { childList: true, subtree: true });

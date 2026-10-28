@@ -113,6 +113,15 @@ pub fn cancel_job(state: &AppState, job_id: &str) -> bool {
     true
 }
 
+/// Cancels all pending or actively processing jobs immediately.
+pub fn cancel_all_jobs(state: &AppState) {
+    let job_ids: Vec<String> = state.jobs.lock().unwrap().keys().cloned().collect();
+    for id in &job_ids {
+        cancel_job(state, id);
+    }
+    state.active_jobs.store(0, Ordering::SeqCst);
+}
+
 fn is_cancelled(state: &AppState, job_id: &str) -> bool {
     state.cancelled_jobs.lock().unwrap().contains(job_id)
 }

@@ -62,7 +62,7 @@ async function pollJob(
   let lastProgressMsg = '';
   while (Date.now() < deadline) {
     if (shouldStop()) {
-      return { status: 'failed', errorCode: 'CANCELLED', errorMessage: 'Stopped by user.' };
+      return { status: 'failed', errorCode: 'CANCELLED', errorMessage: 'Interrompido pelo usuário.' };
     }
     const res = await fetch(`${serverUrl}/api/jobs/${jobId}`);
     if (!res.ok) {
@@ -87,7 +87,7 @@ async function pollJob(
     if (data.status === 'succeeded' || data.status === 'failed') return data;
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  return { status: 'failed', errorCode: 'TRANSLATION_TIMEOUT', errorMessage: 'Timed out waiting for the backend.' };
+  return { status: 'failed', errorCode: 'TRANSLATION_TIMEOUT', errorMessage: 'Tempo limite esgotado aguardando o servidor.' };
 }
 
 // Tracks which tab asked for each in-flight job, so a "Stop" click (always
@@ -171,7 +171,7 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
     return {
       ok: false,
       errorCode: result.errorCode ?? 'TRANSLATION_FAILED',
-      errorMessage: result.errorMessage ?? 'Translation failed.',
+      errorMessage: result.errorMessage ?? 'Falha na tradução.',
     };
   } catch (err) {
     console.error(LOG, 'request to desktop app failed', err);
@@ -226,7 +226,7 @@ export default defineBackground(() => {
   browser.contextMenus.removeAll().then(() => {
     browser.contextMenus.create({
       id: 'mwt-translate-image',
-      title: 'Translate this image',
+      title: 'Traduzir esta imagem',
       contexts: ['image'],
     });
   });

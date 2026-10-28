@@ -79,12 +79,14 @@ fn query_dxgi_vram() -> Option<(String, u64, u64)> {
         let name_len = desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
         let name = String::from_utf16_lossy(&desc.Description[..name_len]).trim().to_string();
         let used_mb = memory.CurrentUsage / (1024 * 1024);
-        let budget_mb = if memory.Budget > 0 {
+        let total_mb = if desc.DedicatedVideoMemory > 0 {
+            desc.DedicatedVideoMemory as u64 / (1024 * 1024)
+        } else if memory.Budget > 0 {
             memory.Budget / (1024 * 1024)
         } else {
-            desc.DedicatedVideoMemory as u64 / (1024 * 1024)
+            0
         };
-        Some((name, used_mb, budget_mb))
+        Some((name, used_mb, total_mb))
     }
 }
 

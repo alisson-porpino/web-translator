@@ -60,7 +60,7 @@ async function load() {
   activeOrigin = originOf(activeTab?.url);
 
   if (!activeOrigin) {
-    currentSiteEl.textContent = 'Not a regular web page';
+    currentSiteEl.textContent = 'Não é uma página web comum';
     siteEnabledEl.disabled = true;
     translateNowBtn.disabled = true;
   } else {
@@ -87,12 +87,12 @@ siteEnabledEl.addEventListener('change', async () => {
 
 translateNowBtn.addEventListener('click', async () => {
   if (!activeTab?.id) return;
-  manualStatusEl.textContent = 'Scanning this page...';
+  manualStatusEl.textContent = 'Escaneando página...';
   try {
     await browser.tabs.sendMessage(activeTab.id, { type: 'TRANSLATE_PAGE_NOW' });
-    manualStatusEl.textContent = 'Started -- watch the page for progress.';
+    manualStatusEl.textContent = 'Iniciado — acompanhe o progresso na página.';
   } catch (err) {
-    manualStatusEl.textContent = `Could not reach this page: ${err instanceof Error ? err.message : String(err)}`;
+    manualStatusEl.textContent = `Não foi possível comunicar com a página: ${err instanceof Error ? err.message : String(err)}`;
   }
   setTimeout(() => (manualStatusEl.textContent = ''), 3000);
 });
@@ -153,7 +153,7 @@ popupUnloadBtn?.addEventListener('click', async () => {
 
 function setConnected(connected: boolean) {
   connectionDotEl.style.background = connected ? '#4ade80' : '#f87171';
-  connectionTextEl.textContent = connected ? 'Connected to desktop app' : 'Not connected -- is the server running?';
+  connectionTextEl.textContent = connected ? 'Conectado ao aplicativo desktop' : 'Desconectado — o servidor está rodando?';
 }
 
 // Polls the desktop app's own /api/resources (http_server.rs) -- same
@@ -178,10 +178,10 @@ async function refreshResourceUsage() {
       : u.vramUsedMb != null
         ? `\nVRAM: ${u.vramUsedMb}/${u.vramTotalMb || 0} MB`
         : '';
-    const modelStatus = u.modelsLoaded ? 'Modelos em RAM: Ativos' : 'Modelos: Desalocados (Idle)';
-    const jobsInfo = u.activeJobs && u.activeJobs > 0 ? ` (${u.activeJobs} ativo)` : '';
+    const modelStatus = u.modelsLoaded ? 'Modelos em RAM: Ativos' : 'Modelos: Desalocados (Em espera)';
+    const jobsInfo = u.activeJobs && u.activeJobs > 0 ? ` (${u.activeJobs} tarefa(s) ativa(s))` : '';
 
-    resourceUsageEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap}\nApp RAM: ${procMem} · Sistema: ${sysUsed}/${sysTotal} MB${gpuText}\nStatus: ${modelStatus}${jobsInfo}`;
+    resourceUsageEl.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap}\nRAM do App: ${procMem} · RAM do Sistema: ${sysUsed}/${sysTotal} MB${gpuText}\nStatus: ${modelStatus}${jobsInfo}`;
 
     if (popupUnloadBtn) {
       popupUnloadBtn.style.display = u.modelsLoaded ? 'block' : 'none';
@@ -200,7 +200,7 @@ async function refreshResourceUsage() {
     }
   } catch {
     setConnected(false);
-    resourceUsageEl.textContent = 'Desktop app not reachable.';
+    resourceUsageEl.textContent = 'Aplicativo desktop não alcançável.';
     if (popupUnloadBtn) popupUnloadBtn.style.display = 'none';
     if (popupDownloadBanner) popupDownloadBanner.style.display = 'none';
   }
@@ -230,7 +230,7 @@ saveBtn.addEventListener('click', async () => {
   };
   await saveSettings(next);
   settingsCache = next;
-  statusEl.textContent = 'Saved.';
+  statusEl.textContent = 'Salvo com sucesso.';
   setTimeout(() => (statusEl.textContent = ''), 1500);
   refreshResourceUsage();
 });

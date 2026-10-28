@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Manga Web Translator</title>
@@ -10,26 +10,26 @@
       <img src="icon.png" alt="" class="app-icon" />
       <div>
         <h1>Manga Web Translator</h1>
-        <p class="subtitle">Configures the background server your browser extension talks to.</p>
+        <p class="subtitle">Configurações do servidor local de tradução.</p>
       </div>
     </header>
 
     <div class="status-row">
       <div class="status status--server" id="serverStatus">
         <span class="dot" id="serverDot" style="background:#9a9a9a"></span>
-        <span id="serverStatusText">Server stopped</span>
-        <button type="button" id="serverToggleBtn" class="status__toggle">Start</button>
+        <span id="serverStatusText">Servidor parado</span>
+        <button type="button" id="serverToggleBtn" class="status__toggle">Iniciar</button>
       </div>
       <p class="hint" id="serverError" hidden></p>
       <div class="status" id="usageStatus">
         <span class="dot" style="background:#9a9a9a"></span>
-        <span id="usageText">Google usage today: —</span>
+        <span id="usageText">Uso diário do Google: —</span>
       </div>
       <div class="status status--resources" id="resourceStatus">
         <span class="dot" id="resourceDot" style="background:#9a9a9a"></span>
         <div class="resource-info" style="flex:1">
-          <div id="resourceText" style="font-weight: 500">CPU: — · App RAM: —</div>
-          <div id="resourceDetailText" style="font-size: 11px; color: var(--muted); margin-top: 2px">Sistema: —</div>
+          <div id="resourceText" style="font-weight: 500">CPU: — · RAM do App: —</div>
+          <div id="resourceDetailText" style="font-size: 11px; color: var(--muted); margin-top: 2px">RAM do Sistema: —</div>
         </div>
         <button type="button" id="unloadModelsBtn" class="status__btn" title="Descarrega os modelos da memória imediatamente" style="display:none">Liberar Memória</button>
       </div>
@@ -47,142 +47,127 @@
     </div>
 
     <fieldset class="extension-install">
-      <legend>Browser extension</legend>
+      <legend>Extensão do Navegador</legend>
       <p class="hint" style="margin-top:0">
-        Already built and ready to load -- no separate download or build step needed.
+        Já compilada e pronta para carregar — sem necessidade de compilação adicional.
       </p>
       <div class="extension-install__buttons">
-        <button type="button" id="installChromeBtn">Install for Chrome</button>
-        <button type="button" id="installFirefoxBtn">Install for Firefox</button>
+        <button type="button" id="installChromeBtn">Instalar no Chrome</button>
+        <button type="button" id="installFirefoxBtn">Instalar no Firefox</button>
       </div>
       <div id="extensionInstallFeedback" class="hint"></div>
       <ol class="extension-install__steps" id="extensionInstallSteps" hidden>
         <li id="extensionStepChrome" hidden>
-          A folder just opened. Open <code>chrome://extensions</code>, turn on
-          <strong>Developer mode</strong> (top right), then click <strong>Load unpacked</strong> and pick
-          that folder.
+          Uma pasta acabou de ser aberta. Acesse <code>chrome://extensions</code>, ative o
+          <strong>Modo de desenvolvedor</strong> (canto superior direito), clique em <strong>Carregar sem compactação</strong> e selecione
+          essa pasta.
         </li>
         <li id="extensionStepFirefox" hidden>
-          A folder just opened. Open <code>about:debugging#/runtime/this-firefox</code>, click
-          <strong>Load Temporary Add-on…</strong>, and pick the <code>manifest.json</code> file inside it.
+          Uma pasta acabou de ser aberta. Acesse <code>about:debugging#/runtime/this-firefox</code>, clique em
+          <strong>Carregar extensão temporária…</strong> e selecione o arquivo <code>manifest.json</code> dentro dela.
         </li>
       </ol>
     </fieldset>
 
     <form id="settingsForm">
       <fieldset>
-        <legend>Engine</legend>
-        <label for="enginePreference">Translation engine</label>
+        <legend>Motor de Tradução</legend>
+        <label for="enginePreference">Preferência de motor</label>
         <select id="enginePreference">
-          <option value="local-then-google">Local first, Google as fallback</option>
-          <option value="google-then-local">Google first, local as fallback</option>
-          <option value="local-only">Local only (free, offline)</option>
-          <option value="google-only">Google only</option>
+          <option value="local-then-google">Local primeiro, Google como alternativa</option>
+          <option value="google-then-local">Google primeiro, local como alternativa</option>
+          <option value="local-only">Apenas local (gratuito, offline)</option>
+          <option value="google-only">Apenas Google</option>
         </select>
-        <p class="hint">The local engine (Koharu's own pipeline) is fully offline, free, and multilingual. Google (Gemini) also reads any language but costs API quota.</p>
+        <p class="hint">O motor local (pipeline do Koharu) é 100% offline, gratuito e multilíngue. O Google (Gemini) também traduz qualquer idioma, mas consome a cota da sua API.</p>
       </fieldset>
 
       <fieldset>
-        <legend>Local engine models (Koharu)</legend>
-        <label for="ocrModel">OCR model</label>
+        <legend>Modelos do motor local (Koharu)</legend>
+        <label for="ocrModel">Modelo de OCR (Detecção e Leitura)</label>
         <select id="ocrModel">
-          <option value="paddleocr-vl-1.6">PaddleOCR-VL 1.6 (default)</option>
+          <option value="paddleocr-vl-1.6">PaddleOCR-VL 1.6 (padrão)</option>
           <option value="manga-ocr">Manga OCR</option>
           <option value="baberu-ocr">Baberu OCR</option>
           <option value="hayai-ocr">Hayai OCR</option>
         </select>
 
-        <label for="inpaintingModel">Inpainting model</label>
+        <label for="inpaintingModel">Modelo de Inpainting (Limpeza de Balões)</label>
         <select id="inpaintingModel">
-          <option value="lama">LaMa (default)</option>
+          <option value="lama">LaMa (padrão)</option>
           <option value="aot-inpainting">AOT Inpainting</option>
-          <option value="flux2-klein">Flux.2 Klein (generative)</option>
-          <option value="rorem-mixed">RoRem Mixed (generative)</option>
+          <option value="flux2-klein">Flux.2 Klein (generativo)</option>
+          <option value="rorem-mixed">RoRem Mixed (generativo)</option>
         </select>
 
-        <label for="translationModel">Translation model (local, offline)</label>
+        <label for="translationModel">Modelo de Tradução (local, offline)</label>
         <select id="translationModel">
-          <option value="">Loading…</option>
+          <option value="">Carregando…</option>
         </select>
 
-        <label for="translationQuantization">Quantization</label>
+        <label for="translationQuantization">Quantização</label>
         <select id="translationQuantization"></select>
         <p class="hint">
-          A smaller/more-quantized model is faster and uses less RAM but may translate less
-          accurately; a larger one is slower but more capable. Picking a quantization not already
-          downloaded (marked below) triggers a one-time download on the next job.
+          Modelos menores/mais quantizados são mais rápidos e usam menos RAM/VRAM; modelos maiores são mais lentos, porém mais precisos. Selecionar uma quantização ainda não baixada iniciará o download automático na próxima tradução.
         </p>
 
         <p class="hint">
-          These all come straight from Koharu's own engine and are saved to its shared config file
-          (<code>~/.koharu/config.toml</code>) — the same one its own desktop app uses, if you ever install
-          it. Takes effect on the next translation job, no restart needed. Koharu also supports several
-          cloud translation providers (OpenRouter, Claude, Grok, etc.) — not exposed here, since this
-          app's own Engine/Google settings above already cover local-vs-cloud.
+          Estas opções configuram diretamente o motor do Koharu e são salvas em <code>~/.koharu/config.toml</code>. As alterações passam a valer no próximo trabalho de tradução, sem necessidade de reiniciar.
         </p>
-        <button type="button" id="savePipelineModelsBtn">Save model selection</button>
+        <button type="button" id="savePipelineModelsBtn">Salvar seleção de modelos</button>
         <div id="pipelineModelsFeedback"></div>
       </fieldset>
 
       <fieldset>
         <legend>Google (Gemini)</legend>
-        <label for="googleApiKey">API key</label>
-        <input id="googleApiKey" type="password" placeholder="Leave empty if you only want local" autocomplete="off" />
-        <p class="hint">Get one at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Stored only on this machine.</p>
+        <label for="googleApiKey">Chave de API (API Key)</label>
+        <input id="googleApiKey" type="password" placeholder="Deixe em branco se for usar apenas o motor local" autocomplete="off" />
+        <p class="hint">Obtenha sua chave em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a>. Armazenada apenas localmente nesta máquina.</p>
 
-        <label for="googleDailyCap">Daily request cap</label>
+        <label for="googleDailyCap">Limite diário de requisições</label>
         <input id="googleDailyCap" type="number" min="0" step="1" />
-        <p class="hint">Enforced here, before any request is sent — independent of Google's own billing alerts. 0 = unlimited.</p>
+        <p class="hint">Controlado antes de qualquer envio — independente dos alertas de faturamento do Google. 0 = sem limite.</p>
       </fieldset>
 
       <details>
-        <summary>Advanced</summary>
-        <label for="geminiModel">Gemini model (OCR + translation only)</label>
+        <summary>Avançado</summary>
+        <label for="geminiModel">Modelo do Gemini (apenas OCR + Tradução)</label>
         <input id="geminiModel" type="text" />
 
-        <label>Lettering font stack (.ttf/.otf paths, optional, ordered)</label>
+        <label>Lista de fontes para letreiramento (caminhos .ttf/.otf, opcional, ordenado)</label>
         <div id="fontStackList"></div>
-        <button type="button" id="addFontBtn" class="catalog-row__manage">+ Add font</button>
+        <button type="button" id="addFontBtn" class="catalog-row__manage">+ Adicionar fonte</button>
         <p class="hint">
-          Each character is drawn with the first font in this list that has a glyph for it — a
-          built-in Japanese fallback is always tried last, so CJK text still renders even with an
-          empty or Latin-only stack. Order matters: put your main lettering font first, a kanji
-          font after it, and so on. Leave the list empty for the built-in font. For an authentic
-          comic look, buy/download
-          <a href="https://blambot.com" target="_blank" rel="noreferrer">Anime Ace</a> or
-          <a href="https://www.comicbookfonts.com" target="_blank" rel="noreferrer">Wild Words</a>
-          yourself (personal-use licenses exist) and point an entry at the .ttf file on your disk —
-          this app never bundles or redistributes those.
+          Cada caractere é desenhado com a primeira fonte desta lista que contenha o glifo correspondente. Uma fonte japonesa embutida é sempre usada como reserva. Coloque sua fonte de letreiramento principal primeiro. Deixe a lista vazia para usar a fonte padrão.
         </p>
 
-        <label for="port">Server port</label>
+        <label for="port">Porta do servidor</label>
         <input id="port" type="number" min="1024" max="65535" />
         <p class="hint">
-          If the server is running, stop and start it again (above) after changing this for it to take
-          effect.
+          Se o servidor estiver rodando, pare e inicie novamente após alterar para aplicar.
         </p>
 
-        <label for="detectionScoreThreshold">Detection confidence threshold</label>
+        <label for="detectionScoreThreshold">Limiar de confiança para detecção</label>
         <input id="detectionScoreThreshold" type="number" min="0" max="1" step="0.05" />
-        <p class="hint">How confident the text detector must be before counting something as text (0-1). Lower catches more but noisier regions; higher is stricter and may miss faint/unusual lettering. Default 0.3.</p>
+        <p class="hint">Confiança mínima para considerar um bloco como texto (0-1). Menor detecta mais texto, porém com mais ruído; maior é mais rigoroso. Padrão: 0.3.</p>
 
-        <label for="maxCpuThreads">Max CPU threads for the Google engine's local detector</label>
+        <label for="maxCpuThreads">Máximo de threads de CPU para o detector local do motor Google</label>
         <input id="maxCpuThreads" type="number" min="0" step="1" />
-        <p class="hint">Caps how many threads the local text detector (ONNX Runtime) uses — only applies to the Google engine path; the local Koharu engine manages its own resources. 0 = no cap (use every core). Applies to new jobs right away, no restart needed.</p>
+        <p class="hint">Limita quantos núcleos o detector local (ONNX Runtime) utiliza no caminho do Google. 0 = sem limite (usa todos os núcleos).</p>
 
-        <label for="maxMemoryMb">Max memory for this app (MB)</label>
+        <label for="maxMemoryMb">Limite máximo de memória para este app (MB)</label>
         <input id="maxMemoryMb" type="number" min="0" step="256" />
-        <p class="hint">Hard cap on this whole app's memory use (macOS/Linux only — no effect on Windows yet). A job that would cross it fails instead of letting the whole machine start swapping. 0 = no cap.</p>
+        <p class="hint">Limite de consumo de memória do aplicativo (macOS/Linux). 0 = sem limite.</p>
 
-        <label for="modelsDir">Models storage directory</label>
+        <label for="modelsDir">Pasta de armazenamento dos modelos</label>
         <div class="path-row">
-          <input id="modelsDir" type="text" placeholder="Default: system cache folder" readonly />
-          <button type="button" id="browseModelsDirBtn">Browse…</button>
+          <input id="modelsDir" type="text" placeholder="Padrão: pasta de cache do sistema" readonly />
+          <button type="button" id="browseModelsDirBtn">Procurar…</button>
         </div>
-        <p class="hint">Where the Koharu engine downloads and keeps its models. Useful to point at a different disk if your system drive is low on space. Changing this requires restarting the app — the engine only reads this setting once, at first use after launch.</p>
+        <p class="hint">Onde o motor Koharu baixa e armazena os modelos de IA. Útil para apontar para outro disco caso o disco C: esteja com pouco espaço. Exige reiniciar o aplicativo após alterar.</p>
       </details>
 
-      <button type="submit" class="primary">Save</button>
+      <button type="submit" class="primary">Salvar configurações</button>
       <div id="feedback"></div>
     </form>
 

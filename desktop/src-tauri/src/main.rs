@@ -164,7 +164,8 @@ async fn get_resource_usage(
 }
 
 #[tauri::command]
-async fn unload_models() -> Result<bool, String> {
+async fn unload_models(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    jobs::cancel_all_jobs(&state);
     Ok(engines::koharu_engine::unload().await)
 }
 
