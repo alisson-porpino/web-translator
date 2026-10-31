@@ -242,7 +242,7 @@ pub async fn translate(
     // None: the inpainting model is only loaded as part of the local
     // engine's model set today (see local_pipeline.rs) -- this path still
     // gets the flat-fill erase. Worth sharing later if that's worth doing.
-    compose::redraw_regions(&mut image, &regions, &fonts, None);
+    compose::redraw_regions(&mut image, &regions, &fonts);
 
     let mut out = Vec::new();
     image::DynamicImage::ImageRgba8(image)

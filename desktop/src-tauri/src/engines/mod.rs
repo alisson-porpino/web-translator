@@ -1,14 +1,9 @@
-pub mod baberu_ocr;
 pub mod compose;
 pub mod detect;
-pub mod gguf_meta;
 pub mod google;
-pub mod inpaint;
-pub mod local_llm;
-pub mod local_pipeline;
-pub mod manga_ocr;
+pub mod koharu_engine;
+pub mod koharu_models;
 pub mod ort_env;
-pub mod paddle_ocr_vl;
 
 #[derive(Debug, Clone)]
 pub struct EngineError {

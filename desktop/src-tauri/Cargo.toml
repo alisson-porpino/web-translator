@@ -1,6 +1,6 @@
 [package]
 name = "manga-web-translator"
-version = "0.1.0"
+version = "1.0.3"
 description = "Local background server + settings UI for the Manga Web Translator browser extension"
 edition = "2021"
 
@@ -19,14 +19,47 @@ futures-util = "0.3"
 sha2 = "0.10"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
+dirs = "6"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 imageproc = "0.25"
 ab_glyph = "0.2"
+# Only engines/detect.rs still uses this (the Google/Gemini engine's text
+# region detector) -- the Koharu engine does its own detection and never
+# touches ort.
 ort = { version = "2.0.0-rc.14", features = ["download-binaries"] }
 # Real-time CPU/RAM usage readout for the resource-usage display (settings
 # window + extension popup) -- cross-platform, no per-OS cfg needed unlike
 # the memory *limit* above.
 sysinfo = "0.39"
+
+# Koharu's actual inference engine (fork: github.com/alisson-porpino/koharu),
+# pinned to a fixed rev so the build is reproducible anywhere (incl. CI
+# runners) without needing a local clone at a specific path. Bump the rev
+# deliberately, not as a side effect of an unrelated change. Replaces this
+# crate's own engines/* (detect/OCR/inpaint/translate via onnxruntime+
+# llama-cpp-2) -- see specs/DIRETRIZES.md's "Migração em andamento" section
+# for why.
+async-trait = "0.1"
+anyhow = "1"
+tracing = "0.1"
+koharu-pipeline = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-scene = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-ml = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-config = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-translator = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-renderer = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-rasterizer = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe", features = [
+    "native",
+] }
+koharu-runtime = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+tauri-plugin-dialog = "2"
+# "Reveal in Finder/Explorer" for the bundled pre-built extension zip --
+# see main.rs's install_extension.
+tauri-plugin-opener = "2"
+# Extracts the bundled pre-built extension zip so install_extension can
+# open the ready-to-load folder directly -- no manual unzip step for the
+# user.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 # For the optional memory cap (resource_limits.rs): setrlimit(RLIMIT_AS, ..)
@@ -45,30 +78,16 @@ windows = { version = "0.62", features = [
     "Win32_Security",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-# Metal GPU offload -- without it, a 7B model runs CPU-only, which makes a
-# per-bubble translation step unworkably slow. Not enabled for other
-# platforms here: there's no single safe-default GPU backend to assume
-# across arbitrary Windows/Linux hardware (CUDA vs Vulkan vs CPU-only).
-llama-cpp-2 = { version = "0.1.160", features = ["metal", "mtmd"] }
-# CoreML EP for the ONNX sessions (detector/OCR/inpainting) -- without it,
-# the inpainting model in particular (a 512x512 conv-heavy network, run
-# once per text region) was taking 10+ seconds per region on CPU alone.
-# Cargo unions features for the same dependency declared in multiple
-# sections, so this adds onto the plain `ort` entry above rather than
-# conflicting with it.
+# CoreML EP for engines/detect.rs's ONNX session. Cargo unions features
+# for the same dependency declared in multiple sections, so this adds
+# onto the plain `ort` entry above rather than conflicting with it.
 ort = { version = "2.0.0-rc.14", features = ["coreml"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-# CUDA offload -- same reasoning as Metal above: an unaccelerated 7B model
-# is impractically slow. Requires the CUDA toolkit (nvcc) on the machine
-# that *builds* this (not just runs it) -- untested here (this is built on
-# macOS); verify on an actual Windows/Linux+NVIDIA box before relying on
-# it, and if that machine has no CUDA toolkit, drop this feature and fall
-# back to plain CPU rather than fail the build.
-llama-cpp-2 = { version = "0.1.160", features = ["cuda", "mtmd"] }
 
 [profile.release]
 opt-level = "z"
