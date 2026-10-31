@@ -33,4 +33,15 @@ export interface StopTranslationsRequest {
   type: 'STOP_TRANSLATIONS';
 }
 
-export type ExtensionMessage = TranslateImageRequest | StopTranslationsRequest;
+export interface JobProgressNotification {
+  type: 'JOB_PROGRESS';
+  imageUrl: string;
+  stage?: string;
+  progressMessage?: string;
+  progressPercent?: number;
+}
+
+export type ExtensionMessage =
+  | TranslateImageRequest
+  | StopTranslationsRequest
+  | JobProgressNotification;

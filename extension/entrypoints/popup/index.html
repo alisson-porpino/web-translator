@@ -1,39 +1,95 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Manga Web Translator</title>
     <style>
+      /* Same dark palette as the on-page review/progress panel
+         (content/style.css's .mwt-review-panel / .mwt-progress-panel) --
+         this popup used to be a plain white page, out of place next to
+         that panel. */
       body {
-        font: 13px system-ui, sans-serif;
+        font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         width: 300px;
         margin: 0;
         padding: 12px;
-        color: #1a1a1a;
+        background: #141416;
+        color: #fff;
       }
       h1 {
         font-size: 14px;
-        margin: 0 0 10px;
+        margin: 0;
       }
       h2 {
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: #888;
+        color: #9a9a9a;
         margin: 16px 0 6px;
+      }
+      .header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .icon-btn {
+        width: 26px;
+        height: 26px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.08);
+        border: none;
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 0;
+        margin: 0;
+      }
+      .icon-btn:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .connection-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: 11px;
+        color: #bbb;
+      }
+      .connection-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #9a9a9a;
+        flex-shrink: 0;
       }
       label {
         display: block;
         margin-top: 10px;
         font-weight: 600;
       }
+      html,
+      body {
+        color-scheme: dark;
+      }
       input,
       select {
         width: 100%;
         box-sizing: border-box;
         margin-top: 4px;
-        padding: 4px 6px;
+        padding: 5px 7px;
         font: inherit;
+        background: #1c1c20;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        color: #fff;
+        color-scheme: dark;
+      }
+      select option {
+        background-color: #1c1c20;
+        color: #ffffff;
       }
       .row {
         display: flex;
@@ -47,13 +103,33 @@
       button {
         margin-top: 10px;
         width: 100%;
-        padding: 6px;
+        padding: 7px;
         font: inherit;
+        font-weight: 600;
         cursor: pointer;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 6px;
+        color: #fff;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      button.primary {
+        background: rgba(34, 197, 94, 0.9);
+        border-color: transparent;
+      }
+      button.primary:hover {
+        background: rgba(34, 197, 94, 1);
+      }
+      button.secondary {
+        background: transparent;
+        border-color: rgba(255, 255, 255, 0.14);
+        color: #bbb;
       }
       #currentSite {
         font: 11px/1.4 ui-monospace, monospace;
-        background: #f3f3f3;
+        background: rgba(255, 255, 255, 0.06);
         border-radius: 4px;
         padding: 6px 8px;
         word-break: break-all;
@@ -70,55 +146,125 @@
       }
       hr {
         border: none;
-        border-top: 1px solid #e5e5e5;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
         margin: 14px 0 0;
       }
+      .hint {
+        font-size: 11px;
+        color: #9a9a9a;
+        margin: 4px 0 0;
+      }
       #status,
-      #manualStatus {
+      #manualStatus,
+      #setupStatus {
         margin-top: 6px;
         font-size: 11px;
-        color: #666;
+        color: #bbb;
         min-height: 1.2em;
+      }
+      [hidden] {
+        display: none !important;
       }
     </style>
   </head>
   <body>
-    <h1>Manga Web Translator</h1>
-
-    <h2>This tab</h2>
-    <div id="currentSite">—</div>
-    <div class="toggle-row">
-      <span>Auto-translate on this site</span>
-      <input id="siteEnabled" type="checkbox" style="width:auto" />
+    <div class="header-row">
+      <h1>Manga Web Translator</h1>
+      <button type="button" id="openSettings" class="icon-btn" title="Configurações" aria-label="Configurações">⚙</button>
     </div>
-    <p style="font-size:11px;color:#888;margin:4px 0 0">
-      Off by default everywhere. Turning this on only affects this site -- never other tabs.
-    </p>
-    <button id="translateNow">Translate this page now</button>
-    <div id="manualStatus"></div>
+    <div class="connection-row">
+      <span class="connection-dot" id="connectionDot"></span>
+      <span id="connectionText">Verificando conexão…</span>
+    </div>
 
-    <hr />
-    <h2>Desktop app resources</h2>
-    <div id="resourceUsage" style="font-size:11px;color:#666;line-height:1.5;white-space:pre-line">Connecting…</div>
+    <!-- Shown once, the first time the popup is ever opened -- same two
+         fields as the settings view below, just surfaced up front so the
+         extension is usable immediately without hunting for the gear
+         icon. Saving here sets hasCompletedSetup, after which this view
+         never shows again (see lib/settings.ts). -->
+    <section id="setupView" hidden>
+      <p class="hint" style="margin-top:10px">
+        Conecte esta extensão ao aplicativo desktop. O padrão é
+        <code>127.0.0.1:8000</code> — altere apenas se você configurou uma porta diferente no app.
+      </p>
 
-    <hr />
-    <h2>General</h2>
+      <label for="setupServerUrl">URL do servidor desktop</label>
+      <input id="setupServerUrl" type="text" placeholder="http://127.0.0.1:8000" />
 
-    <label for="serverUrl">Desktop app server URL</label>
-    <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" />
-    <p style="font-size:11px;color:#888;margin:4px 0 0">
-      Engine (local/Google) and API key are configured in the desktop app itself.
-    </p>
+      <label for="setupTargetLang" id="setupTargetLangLabel">Idioma de destino (Mangá)</label>
+      <select id="setupTargetLang">
+        <option value="pt">Português</option>
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
 
-    <label for="targetLang">Target language</label>
-    <select id="targetLang">
-      <option value="en">English</option>
-      <option value="pt">Português</option>
-      <option value="es">Español</option>
-    </select>
+      <label for="setupUiLang" id="setupUiLangLabel">Idioma da interface</label>
+      <select id="setupUiLang">
+        <option value="pt">Português</option>
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
 
-    <button id="save">Save</button>
-    <div id="status"></div>
+      <button type="button" id="setupSave" class="primary">Começar</button>
+      <div id="setupStatus"></div>
+    </section>
+
+    <!-- Default view after setup is done. -->
+    <section id="mainView" hidden>
+      <h2>Esta aba</h2>
+      <div id="currentSite">—</div>
+      <div class="toggle-row">
+        <span>Traduzir automaticamente neste site</span>
+        <input id="siteEnabled" type="checkbox" style="width:auto" />
+      </div>
+      <p class="hint">Desativado por padrão. Ativar isso afeta apenas este site — nunca outras abas.</p>
+      <button type="button" id="translateNow">Traduzir esta página agora</button>
+      <div id="manualStatus"></div>
+
+      <hr />
+      <h2>Recursos do app desktop</h2>
+      <div id="resourceUsage" style="font-size:11px;color:#bbb;line-height:1.5;white-space:pre-line">
+        Conectando…
+      </div>
+      <div id="popupDownloadBanner" style="display:none; margin-top:8px; padding:8px; background:rgba(255,255,255,0.06); border-radius:6px; border:1px solid rgba(255,255,255,0.1)">
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px">
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:210px">📥 <span id="popupDownloadTitle">Baixando modelo...</span></span>
+          <span id="popupDownloadPercent" style="color:#60a5fa; font-weight:600">0%</span>
+        </div>
+        <div style="height:4px; background:rgba(255,255,255,0.1); border-radius:2px; overflow:hidden">
+          <div id="popupDownloadBar" style="height:100%; width:0%; background:#3b82f6; transition:width 0.3s"></div>
+        </div>
+      </div>
+      <button type="button" id="popupUnloadBtn" style="margin-top:8px; padding:6px 8px; font-size:11px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:6px; cursor:pointer;">
+        Liberar Memória dos Modelos
+      </button>
+      <div id="popupUnloadFeedback" style="font-size:11px; color:#4ade80; margin-top:4px;"></div>
+    </section>
+
+    <!-- Reached via the gear icon; same fields the setup view has. -->
+    <section id="settingsView" hidden>
+      <label for="serverUrl">URL do servidor desktop</label>
+      <input id="serverUrl" type="text" placeholder="http://127.0.0.1:8000" />
+      <p class="hint">O motor de tradução (local/Google) e chaves de API são configurados no aplicativo desktop.</p>
+
+      <label for="targetLang" id="targetLangLabel">Idioma de destino (Mangá)</label>
+      <select id="targetLang">
+        <option value="pt">Português</option>
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
+
+      <label for="uiLang" id="uiLangLabel">Idioma da interface</label>
+      <select id="uiLang">
+        <option value="pt">Português</option>
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
+
+      <button type="button" id="save" class="primary">Salvar</button>
+      <div id="status"></div>
+      <button type="button" id="backToMain" class="secondary">← Voltar</button>
+    </section>
 
     <script type="module" src="./main.ts"></script>
   </body>

@@ -4,6 +4,8 @@ export interface Settings {
   /** Base URL of the companion desktop app's local server (desktop/ in this repo). */
   serverUrl: string;
   targetLang: string;
+  /** UI language for extension popup and in-page overlays ('pt' | 'en' | 'es'). */
+  uiLang: 'pt' | 'en' | 'es';
   /**
    * Origins (e.g. "https://mangadex.org") where auto-translate is allowed to
    * run on its own as the page loads/changes. Everywhere else, nothing runs
@@ -12,12 +14,24 @@ export interface Settings {
    * Empty by default: opt-in per site, never blanket-on across every tab.
    */
   enabledOrigins: string[];
+  /**
+   * Whether the popup's first-run connection setup (server URL + target
+   * language) has been completed at least once. Gates which view
+   * popup/main.ts shows by default -- false shows the setup view every
+   * time the popup opens; true shows the main (translate) view, with
+   * those same two fields moved behind the gear-icon settings view
+   * instead. Flips to true the first time the setup view's Save button
+   * is used.
+   */
+  hasCompletedSetup: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   serverUrl: 'http://127.0.0.1:8000',
-  targetLang: 'en',
+  targetLang: 'pt',
+  uiLang: (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('pt')) ? 'pt' : 'en',
   enabledOrigins: [],
+  hasCompletedSetup: false,
 };
 
 const STORAGE_KEY = 'mwt:settings';

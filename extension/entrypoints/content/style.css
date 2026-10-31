@@ -53,18 +53,56 @@
   bottom: 16px;
   z-index: 2147483647;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px 8px 14px;
-  background: rgba(20, 20, 22, 0.92);
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(20, 20, 22, 0.95);
   color: #fff;
   font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-width: 220px;
+  backdrop-filter: blur(8px);
+}
+
+.mwt-progress-panel__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mwt-progress-panel__text-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .mwt-progress-panel__text {
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.mwt-progress-panel__detail {
+  font-size: 11px;
+  color: #fb923c;
+  white-space: nowrap;
+}
+
+.mwt-progress-panel__bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mwt-progress-panel__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f97316, #fb923c);
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }
 
 .mwt-progress-panel__stop {
@@ -76,6 +114,7 @@
   border-radius: 6px;
   padding: 5px 10px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .mwt-progress-panel__stop:hover {
@@ -86,3 +125,264 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* Flashed on an image's wrapper when a review-panel row is clicked, so the
+   page's scrollIntoView has an obvious visual target to land on. Reuses
+   the same hue as .mwt-border--pending for visual consistency. */
+.mwt-highlight-flash {
+  outline: 4px solid rgba(251, 146, 60, 0.95) !important;
+  outline-offset: -2px !important;
+  transition: outline-color 0.3s ease;
+}
+
+.mwt-review-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  width: 320px;
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 20, 22, 0.95);
+  color: #fff;
+  font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+/* See specs/DIRETRIZES.md's known-pitfalls list: a `[hidden]` element with
+   its own `display` rule needs this explicit override, or the author rule
+   above wins the specificity tie against the browser's default
+   `[hidden] { display: none }` and `.hidden = true` silently does nothing. */
+.mwt-review-panel[hidden] {
+  display: none;
+}
+
+.mwt-review-panel__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 8px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mwt-review-panel__header span {
+  flex: 1 1 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mwt-review-panel__confirm,
+.mwt-review-panel__cancel,
+.mwt-review-panel__select-all {
+  font: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mwt-review-panel__select-all {
+  color: #ddd;
+  background: transparent;
+  text-decoration: underline;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.mwt-review-panel__select-all:hover {
+  color: #fff;
+}
+
+.mwt-review-panel__confirm {
+  color: #fff;
+  background: rgba(34, 197, 94, 0.9);
+}
+
+.mwt-review-panel__confirm:hover {
+  background: rgba(34, 197, 94, 1);
+}
+
+.mwt-review-panel__confirm:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.mwt-review-panel__cancel {
+  color: #ddd;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mwt-review-panel__cancel:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.mwt-review-panel__resources {
+  padding: 8px 14px;
+  font-size: 11px;
+  color: #9a9a9a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mwt-review-panel__list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.mwt-review-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mwt-review-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mwt-review-row__checkbox {
+  flex: none;
+  cursor: pointer;
+}
+
+.mwt-review-row__thumb {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mwt-review-row__caption {
+  flex: 1;
+  color: #bbb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mwt-review-row__status {
+  flex: none;
+  font-weight: 600;
+}
+
+.mwt-review-row__status--queued,
+.mwt-review-row__status--translating {
+  color: #fbbf5a;
+}
+
+.mwt-review-row__status--done {
+  color: #4ade80;
+}
+
+.mwt-review-row__status--error {
+  color: #f87171;
+}
+
+.mwt-review-row__status--cancelled {
+  color: #9a9a9a;
+}
+
+/* --- Toast notifications --------------------------------------------- */
+.mwt-toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.mwt-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 320px;
+  padding: 12px 14px;
+  background: rgba(24, 24, 27, 0.96);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  animation: mwt-slide-in 0.25s ease-out;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.mwt-toast--dismissing {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.mwt-toast--error {
+  border-left: 4px solid #ef4444;
+}
+
+.mwt-toast--info {
+  border-left: 4px solid #3b82f6;
+}
+
+.mwt-toast__icon {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.mwt-toast__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mwt-toast__title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+}
+
+.mwt-toast__message {
+  font-size: 12px;
+  color: #d1d5db;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.mwt-toast__close {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.mwt-toast__close:hover {
+  color: #fff;
+}
+
+@keyframes mwt-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+

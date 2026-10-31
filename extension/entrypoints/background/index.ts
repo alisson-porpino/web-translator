@@ -1,5 +1,6 @@
 import browser from 'webextension-polyfill';
-import { getSettings } from '../../lib/settings';
+import { getSettings, onSettingsChanged } from '../../lib/settings';
+import { getI18n } from '../../lib/i18n';
 import type { TranslateImageRequest, TranslateImageResponse } from '../../lib/messages';
 
 const LOG = '[MWT:bg]';
@@ -26,6 +27,9 @@ interface CreateJobResponse {
 
 interface JobStatusResponse {
   status: 'queued' | 'processing' | 'succeeded' | 'failed';
+  stage?: string;
+  progressMessage?: string;
+  progressPercent?: number;
   translatedImageUrl?: string;
   errorCode?: string;
   errorMessage?: string;
@@ -48,11 +52,20 @@ async function createJob(
   return res.json();
 }
 
-async function pollJob(serverUrl: string, jobId: string, shouldStop: () => boolean): Promise<JobStatusResponse> {
+async function pollJob(
+  serverUrl: string,
+  jobId: string,
+  shouldStop: () => boolean,
+  tabId?: number,
+  imageUrl?: string,
+  uiLang?: string,
+): Promise<JobStatusResponse> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const dict = getI18n(uiLang);
+  let lastProgressMsg = '';
   while (Date.now() < deadline) {
     if (shouldStop()) {
-      return { status: 'failed', errorCode: 'CANCELLED', errorMessage: 'Stopped by user.' };
+      return { status: 'failed', errorCode: 'CANCELLED', errorMessage: dict.stoppedByUser };
     }
     const res = await fetch(`${serverUrl}/api/jobs/${jobId}`);
     if (!res.ok) {
@@ -60,10 +73,24 @@ async function pollJob(serverUrl: string, jobId: string, shouldStop: () => boole
       throw new Error(`pollJob failed (${res.status}): ${text}`);
     }
     const data: JobStatusResponse = await res.json();
+    if (data.progressMessage && data.progressMessage !== lastProgressMsg) {
+      lastProgressMsg = data.progressMessage;
+      if (tabId !== undefined && imageUrl) {
+        browser.tabs
+          .sendMessage(tabId, {
+            type: 'JOB_PROGRESS',
+            imageUrl,
+            stage: data.stage,
+            progressMessage: data.progressMessage,
+            progressPercent: data.progressPercent,
+          })
+          .catch(() => {});
+      }
+    }
     if (data.status === 'succeeded' || data.status === 'failed') return data;
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  return { status: 'failed', errorCode: 'TRANSLATION_TIMEOUT', errorMessage: 'Timed out waiting for the backend.' };
+  return { status: 'failed', errorCode: 'TRANSLATION_TIMEOUT', errorMessage: dict.timedOut };
 }
 
 // Tracks which tab asked for each in-flight job, so a "Stop" click (always
@@ -128,9 +155,15 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
       pageUrl: req.pageUrl,
       targetLang: settings.targetLang,
     }));
-    console.log(LOG, 'job created', jobId);
     if (tabId !== undefined) jobTabs.set(jobId, tabId);
-    const result = await pollJob(settings.serverUrl, jobId, () => stoppedJobs.has(jobId!));
+    const result = await pollJob(
+      settings.serverUrl,
+      jobId,
+      () => stoppedJobs.has(jobId!),
+      tabId,
+      req.imageUrl,
+      settings.uiLang,
+    );
     console.log(LOG, 'job finished', jobId, result);
     if (result.errorCode === 'CANCELLED') {
       return { ok: false, errorCode: 'CANCELLED', errorMessage: result.errorMessage, cancelled: true };
@@ -142,7 +175,7 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
     return {
       ok: false,
       errorCode: result.errorCode ?? 'TRANSLATION_FAILED',
-      errorMessage: result.errorMessage ?? 'Translation failed.',
+      errorMessage: result.errorMessage ?? getI18n(settings.uiLang).translationFailed,
     };
   } catch (err) {
     console.error(LOG, 'request to desktop app failed', err);
@@ -169,6 +202,17 @@ export default defineBackground(() => {
       if (sender.tab?.id !== undefined) void stopTabTranslations(sender.tab.id);
       return undefined;
     }
+    if (msg.type === 'GET_RESOURCE_USAGE') {
+      // Relayed through here (rather than a direct fetch from
+      // content/index.ts, which runs injected into arbitrary pages and
+      // could be blocked by a strict site CSP) the same way job creation
+      // already is -- see createJob above.
+      return getSettings().then(async (settings) => {
+        const res = await fetch(`${settings.serverUrl}/api/resources`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
+    }
     return undefined;
   });
 
@@ -183,12 +227,20 @@ export default defineBackground(() => {
   // removeAll() first: avoids a "duplicate id" error if the background
   // context is re-created without a full browser restart (e.g. reloading a
   // temporary add-on during development).
-  browser.contextMenus.removeAll().then(() => {
-    browser.contextMenus.create({
-      id: 'mwt-translate-image',
-      title: 'Translate this image',
-      contexts: ['image'],
+  getSettings().then((s) => {
+    browser.contextMenus.removeAll().then(() => {
+      browser.contextMenus.create({
+        id: 'mwt-translate-image',
+        title: getI18n(s.uiLang).contextMenuTitle,
+        contexts: ['image'],
+      });
     });
+  });
+
+  onSettingsChanged((next) => {
+    browser.contextMenus.update('mwt-translate-image', {
+      title: getI18n(next.uiLang).contextMenuTitle,
+    }).catch(() => {});
   });
 
   browser.contextMenus.onClicked.addListener(async (info, tab) => {

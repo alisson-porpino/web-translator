@@ -1,6 +1,7 @@
 import browser from 'webextension-polyfill';
 import './style.css';
 import { getSettings, onSettingsChanged, type Settings } from '../../lib/settings';
+import { getI18n } from '../../lib/i18n';
 import type { TranslateImageResponse } from '../../lib/messages';
 
 // --- Detection heuristics -------------------------------------------------
@@ -27,6 +28,12 @@ function isLikelyBubbleCrop(w: number, h: number): boolean {
   return w >= 180 && h >= 80 && w <= 420 && h <= 420 && w * h >= 40_000;
 }
 function isCandidateImage(img: HTMLImageElement): boolean {
+  // Our own injected translated-image overlay (see buildOverlay below) --
+  // without this, it's a brand-new <img> node scanForCandidates has never
+  // seen before, at essentially the same size as the original it's
+  // covering, so it kept getting offered right back as a "new" candidate
+  // on the very next manual scan.
+  if (img.classList.contains('mwt-overlay')) return false;
   const src = img.currentSrc || img.src;
   // SVGs are vector icons/logos/payment badges, never scanned manga pages --
   // without this, large inline SVGs (e.g. MangaDex's footer payment icons)
@@ -48,6 +55,10 @@ const processed = new WeakSet<HTMLImageElement>();
 const processedKeys = new Set<string>();
 let settings: Settings;
 
+function t() {
+  return getI18n(settings?.uiLang);
+}
+
 // --- Progress / stop panel --------------------------------------------
 // The local engine can take minutes per image (see background.js's
 // POLL_TIMEOUT_MS comment) -- a page-wide scan with no visible progress or
@@ -57,28 +68,121 @@ let settings: Settings;
 // of one image at a time.
 let progressPanel: HTMLDivElement | null = null;
 let progressText: HTMLSpanElement | null = null;
+let progressDetailText: HTMLSpanElement | null = null;
+let progressProgressBar: HTMLDivElement | null = null;
+let progressProgressFill: HTMLDivElement | null = null;
 let progressStopBtn: HTMLButtonElement | null = null;
 let totalQueued = 0;
 let totalFinished = 0;
 let hidePanelTimer: ReturnType<typeof setTimeout> | null = null;
+let currentProgressDetail = '';
+let currentProgressPercent: number | null = null;
+
+// Toast container for user-facing error / alert notifications
+let toastContainer: HTMLDivElement | null = null;
+
+function ensureToastContainer(): HTMLDivElement {
+  if (!toastContainer) {
+    toastContainer = document.createElement('div');
+    toastContainer.className = 'mwt-toast-container';
+    document.documentElement.appendChild(toastContainer);
+  }
+  return toastContainer;
+}
+
+function showToast(title: string, message: string, type: 'error' | 'info' = 'error'): void {
+  const container = ensureToastContainer();
+  const toast = document.createElement('div');
+  toast.className = `mwt-toast mwt-toast--${type}`;
+
+  const iconEl = document.createElement('div');
+  iconEl.className = 'mwt-toast__icon';
+  iconEl.textContent = type === 'error' ? '⚠️' : 'ℹ️';
+  toast.appendChild(iconEl);
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'mwt-toast__body';
+
+  const titleEl = document.createElement('div');
+  titleEl.className = 'mwt-toast__title';
+  titleEl.textContent = title;
+  bodyEl.appendChild(titleEl);
+
+  const msgEl = document.createElement('div');
+  msgEl.className = 'mwt-toast__message';
+  msgEl.textContent = message;
+  bodyEl.appendChild(msgEl);
+
+  toast.appendChild(bodyEl);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'mwt-toast__close';
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Fechar';
+  closeBtn.addEventListener('click', () => {
+    toast.classList.add('mwt-toast--dismissing');
+    setTimeout(() => toast.remove(), 250);
+  });
+  toast.appendChild(closeBtn);
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    if (toast.parentElement) {
+      toast.classList.add('mwt-toast--dismissing');
+      setTimeout(() => toast.remove(), 250);
+    }
+  }, 8000);
+}
 
 function ensureProgressPanel(): void {
   if (progressPanel) return;
   progressPanel = document.createElement('div');
   progressPanel.className = 'mwt-progress-panel';
+
+  const row = document.createElement('div');
+  row.className = 'mwt-progress-panel__main';
+
+  const textGroup = document.createElement('div');
+  textGroup.className = 'mwt-progress-panel__text-group';
+
   progressText = document.createElement('span');
   progressText.className = 'mwt-progress-panel__text';
+  textGroup.appendChild(progressText);
+
+  progressDetailText = document.createElement('span');
+  progressDetailText.className = 'mwt-progress-panel__detail';
+  progressDetailText.hidden = true;
+  textGroup.appendChild(progressDetailText);
+
+  row.appendChild(textGroup);
+
   progressStopBtn = document.createElement('button');
   progressStopBtn.className = 'mwt-progress-panel__stop';
   progressStopBtn.type = 'button';
-  progressStopBtn.textContent = 'Stop';
+  progressStopBtn.textContent = t().stopBtn;
   progressStopBtn.addEventListener('click', stopAllTranslations);
-  progressPanel.appendChild(progressText);
-  progressPanel.appendChild(progressStopBtn);
+  row.appendChild(progressStopBtn);
+
+  progressPanel.appendChild(row);
+
+  progressProgressBar = document.createElement('div');
+  progressProgressBar.className = 'mwt-progress-panel__bar';
+  progressProgressBar.hidden = true;
+  progressProgressFill = document.createElement('div');
+  progressProgressFill.className = 'mwt-progress-panel__fill';
+  progressProgressBar.appendChild(progressProgressFill);
+  progressPanel.appendChild(progressProgressBar);
+
   document.documentElement.appendChild(progressPanel);
 }
 
 function updateProgressPanel(): void {
+  // The review panel shows its own per-row + header progress once a
+  // manual review batch is confirmed -- this simpler text+stop panel
+  // would just be a redundant second status line in that case.
+  if (reviewPanelActive) return;
   if (totalQueued === 0) return;
   if (hidePanelTimer) {
     clearTimeout(hidePanelTimer);
@@ -88,7 +192,11 @@ function updateProgressPanel(): void {
   progressPanel!.hidden = false;
 
   if (totalFinished >= totalQueued) {
-    progressText!.textContent = `Translated ${totalFinished}/${totalQueued}.`;
+    progressText!.textContent = t().translatedProgress(totalFinished, totalQueued);
+    if (progressDetailText) progressDetailText.hidden = true;
+    if (progressProgressBar) progressProgressBar.hidden = true;
+    currentProgressDetail = '';
+    currentProgressPercent = null;
     progressStopBtn!.disabled = true;
     // Auto-dismiss, then reset so the next "translate this page" starts a
     // fresh count instead of carrying this batch's totals forward.
@@ -99,11 +207,358 @@ function updateProgressPanel(): void {
     }, 4000);
   } else {
     const running = runningTranslations;
-    progressText!.textContent =
-      `Translating ${totalFinished}/${totalQueued}${running > 0 ? ` (${running} running)` : ''}…`;
+    progressText!.textContent = t().translatingProgress(totalFinished, totalQueued, running);
     progressStopBtn!.disabled = false;
+
+    if (currentProgressDetail) {
+      progressDetailText!.textContent = currentProgressDetail;
+      progressDetailText!.hidden = false;
+    } else {
+      progressDetailText!.hidden = true;
+    }
+
+    if (currentProgressPercent !== null && currentProgressPercent >= 0) {
+      progressProgressBar!.hidden = false;
+      progressProgressFill!.style.width = `${Math.min(100, Math.max(0, currentProgressPercent))}%`;
+    } else {
+      progressProgressBar!.hidden = true;
+    }
   }
 }
+
+// --- Review panel (manual scan only) -----------------------------------
+// "Translate this page now" collects candidates here instead of enqueueing
+// them immediately -- shows a panel with a thumbnail + checkbox per
+// candidate, lets the user exclude false positives from the detection
+// heuristic *before* any backend job is created for them, and lets
+// clicking a row scroll the page to that image so it can be checked in
+// context. Auto-scan (enabledOrigins) and the right-click single-image
+// action are untouched -- both already are an explicit, deliberate choice
+// (opting a whole site in, or picking one image), so there's nothing to
+// review there.
+type ReviewRowState = 'review' | 'queued' | 'translating' | 'done' | 'error' | 'cancelled';
+interface ReviewRow {
+  img: HTMLImageElement;
+  include: boolean;
+  state: ReviewRowState;
+  rowEl: HTMLDivElement;
+  checkboxEl: HTMLInputElement;
+  statusEl: HTMLSpanElement;
+}
+let reviewRows: ReviewRow[] = [];
+// Rows actively translating/queued after confirm -- pumpTranslationQueue
+// looks images up here to update their row's live status without needing
+// any change to translateImage's own signature (it reads the same
+// mwt-border--* wrapper classes translateImage already sets).
+const activeReviewRows = new Map<HTMLImageElement, ReviewRow>();
+let reviewPanelActive = false;
+let reviewPanel: HTMLDivElement | null = null;
+let reviewHeaderText: HTMLSpanElement | null = null;
+let reviewConfirmBtn: HTMLButtonElement | null = null;
+let reviewSelectAllBtn: HTMLButtonElement | null = null;
+// Doubles as "Cancel" (pre-confirm: discard the review batch, translate
+// nothing) and "Stop" (post-confirm: same tab-wide stop the old simple
+// progress panel's button always did) -- see updateReviewHeader, which
+// relabels it, and cancelOrStopReview below, which dispatches by phase.
+// Found 2026-10-25: hiding this unconditionally once translation started
+// (matching the confirm button, which really should disappear then) left
+// a batch with no way to stop at all, since the plain progress panel's
+// own Stop button is suppressed whenever the review panel is active (see
+// updateProgressPanel's reviewPanelActive guard) -- there was nothing
+// left on screen to click.
+let reviewCancelBtn: HTMLButtonElement | null = null;
+let reviewListEl: HTMLDivElement | null = null;
+let reviewHideTimer: ReturnType<typeof setTimeout> | null = null;
+let reviewResourceEl: HTMLDivElement | null = null;
+let reviewResourcePoll: ReturnType<typeof setInterval> | null = null;
+
+function ensureReviewPanel(): void {
+  if (reviewPanel) return;
+  reviewPanel = document.createElement('div');
+  reviewPanel.className = 'mwt-review-panel';
+  reviewPanel.hidden = true;
+
+  const header = document.createElement('div');
+  header.className = 'mwt-review-panel__header';
+  reviewHeaderText = document.createElement('span');
+  header.appendChild(reviewHeaderText);
+  reviewSelectAllBtn = document.createElement('button');
+  reviewSelectAllBtn.type = 'button';
+  reviewSelectAllBtn.className = 'mwt-review-panel__select-all';
+  reviewSelectAllBtn.title = t().selectAllTitle;
+  reviewSelectAllBtn.addEventListener('click', () => {
+    const next = !reviewRows.every((r) => r.include);
+    for (const row of reviewRows) {
+      row.include = next;
+      row.checkboxEl.checked = next;
+    }
+    updateReviewHeader();
+  });
+  header.appendChild(reviewSelectAllBtn);
+  reviewConfirmBtn = document.createElement('button');
+  reviewConfirmBtn.type = 'button';
+  reviewConfirmBtn.className = 'mwt-review-panel__confirm';
+  reviewConfirmBtn.addEventListener('click', confirmReview);
+  header.appendChild(reviewConfirmBtn);
+  reviewCancelBtn = document.createElement('button');
+  reviewCancelBtn.type = 'button';
+  reviewCancelBtn.className = 'mwt-review-panel__cancel';
+  reviewCancelBtn.addEventListener('click', cancelOrStopReview);
+  header.appendChild(reviewCancelBtn);
+  reviewPanel.appendChild(header);
+
+  reviewResourceEl = document.createElement('div');
+  reviewResourceEl.className = 'mwt-review-panel__resources';
+  reviewResourceEl.hidden = true;
+  reviewPanel.appendChild(reviewResourceEl);
+
+  reviewListEl = document.createElement('div');
+  reviewListEl.className = 'mwt-review-panel__list';
+  reviewPanel.appendChild(reviewListEl);
+
+  document.documentElement.appendChild(reviewPanel);
+}
+
+function scrollToImage(img: HTMLImageElement): void {
+  img.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const target = img.parentElement?.classList.contains('mwt-wrapper') ? img.parentElement : img;
+  target.classList.add('mwt-highlight-flash');
+  setTimeout(() => target.classList.remove('mwt-highlight-flash'), 1500);
+}
+
+function getRowStatusLabel(state: Exclude<ReviewRowState, 'review'>): string {
+  switch (state) {
+    case 'queued': return t().rowQueued;
+    case 'translating': return t().rowTranslating;
+    case 'done': return t().rowDone;
+    case 'error': return t().rowError;
+    case 'cancelled': return t().rowCancelled;
+  }
+}
+
+function updateRowStatusUI(row: ReviewRow): void {
+  if (row.state === 'review') return;
+  row.checkboxEl.style.visibility = 'hidden';
+  row.statusEl.hidden = false;
+  row.statusEl.textContent = getRowStatusLabel(row.state);
+  row.statusEl.className = `mwt-review-row__status mwt-review-row__status--${row.state}`;
+}
+
+function buildReviewRow(img: HTMLImageElement): ReviewRow {
+  const rowEl = document.createElement('div');
+  rowEl.className = 'mwt-review-row';
+
+  const checkboxEl = document.createElement('input');
+  checkboxEl.type = 'checkbox';
+  checkboxEl.checked = true;
+  checkboxEl.className = 'mwt-review-row__checkbox';
+  checkboxEl.addEventListener('click', (e) => e.stopPropagation());
+  checkboxEl.addEventListener('change', () => {
+    row.include = checkboxEl.checked;
+    // Without this, the confirm button's count/enabled state only ever
+    // refreshed on the "All"/"None" button's own click -- toggling one
+    // checkbox by hand left it frozen wherever that last bulk toggle set
+    // it (e.g. stuck disabled at "Translate (0)" after "None" followed by
+    // re-checking a single row).
+    updateReviewHeader();
+  });
+  rowEl.appendChild(checkboxEl);
+
+  const thumb = document.createElement('img');
+  thumb.className = 'mwt-review-row__thumb';
+  thumb.src = img.currentSrc || img.src;
+  thumb.alt = '';
+  rowEl.appendChild(thumb);
+
+  const caption = document.createElement('span');
+  caption.className = 'mwt-review-row__caption';
+  caption.textContent = `${img.naturalWidth}×${img.naturalHeight}`;
+  rowEl.appendChild(caption);
+
+  const statusEl = document.createElement('span');
+  statusEl.className = 'mwt-review-row__status';
+  statusEl.hidden = true;
+  rowEl.appendChild(statusEl);
+
+  const row: ReviewRow = { img, include: true, state: 'review', rowEl, checkboxEl, statusEl };
+  rowEl.addEventListener('click', () => scrollToImage(img));
+  return row;
+}
+
+interface ResourceUsage {
+  cpuPercent: number;
+  usedMemoryMb: number;
+  totalMemoryMb: number;
+  processMemoryMb?: number;
+  gpuName?: string;
+  gpuMemoryUsedMb?: number;
+  gpuMemoryTotalMb?: number;
+  modelsLoaded?: boolean;
+  activeJobs?: number;
+  downloadStatus?: {
+    isDownloading: boolean;
+    modelName?: string;
+    stage?: string;
+    percent?: number;
+    downloadedBytes?: number;
+    totalBytes?: number;
+  };
+  maxCpuThreads: number;
+  maxMemoryMb: number;
+}
+
+// Live CPU/RAM next to the translation progress itself -- the extension
+// used to only show this in the popup, separate from wherever the actual
+// progress was, which meant closing the popup (the normal thing to do
+// once a page-wide translation is running) lost sight of it entirely.
+async function pollReviewResources(): Promise<void> {
+  if (!reviewResourceEl) return;
+  try {
+    const u = (await browser.runtime.sendMessage({ type: 'GET_RESOURCE_USAGE' })) as any;
+    const parts: string[] = [];
+    if (u.cpuPercent !== undefined) {
+      parts.push(`CPU: ${Math.round(u.cpuPercent)}%`);
+    }
+    if (u.processMemoryMb !== undefined) {
+      parts.push(`App: ${u.processMemoryMb}MB`);
+    }
+    const sysUsed = u.systemUsedMemoryMb ?? u.usedMemoryMb;
+    const sysTotal = u.systemTotalMemoryMb ?? u.totalMemoryMb;
+    if (sysUsed !== undefined && sysTotal !== undefined) {
+      parts.push(`${t().sysRam}: ${sysUsed}/${sysTotal}MB`);
+    }
+    const vramUsed = u.vramUsedMb ?? u.gpuMemoryUsedMb;
+    const vramTotal = u.vramTotalMb ?? u.gpuMemoryTotalMb;
+    if (vramUsed !== undefined && vramTotal !== undefined && vramTotal > 0) {
+      parts.push(`GPU: ${vramUsed}/${vramTotal}MB`);
+    }
+    if (u.download?.isDownloading || u.downloadStatus?.isDownloading) {
+      const d = u.download ?? u.downloadStatus;
+      const pct = Math.round(d.percent ?? 0);
+      parts.push(`Download (${pct}%)`);
+    }
+    reviewResourceEl.textContent = parts.join(' · ');
+  } catch {
+    reviewResourceEl.textContent = t().resourcesUnavailable;
+  }
+}
+
+function setReviewResourcePolling(active: boolean): void {
+  if (!reviewResourceEl) return;
+  reviewResourceEl.hidden = !active;
+  if (active) {
+    if (reviewResourcePoll) return;
+    void pollReviewResources();
+    reviewResourcePoll = setInterval(pollReviewResources, 2000);
+  } else if (reviewResourcePoll) {
+    clearInterval(reviewResourcePoll);
+    reviewResourcePoll = null;
+  }
+}
+
+function updateReviewHeader(): void {
+  if (!reviewHeaderText || !reviewConfirmBtn || !reviewCancelBtn || !reviewSelectAllBtn) return;
+  const translating = reviewRows.some((r) => r.state !== 'review');
+  setReviewResourcePolling(translating);
+  if (translating) {
+    const done = reviewRows.filter((r) => r.state !== 'queued' && r.state !== 'translating').length;
+    const allDone = done >= reviewRows.length;
+    reviewHeaderText.textContent = allDone ? t().translatedProgress(done, reviewRows.length) : t().translatingProgress(done, reviewRows.length, 0);
+    reviewConfirmBtn.hidden = true;
+    reviewSelectAllBtn.hidden = true;
+    // Nothing left to stop once every row reached a terminal state.
+    reviewCancelBtn.hidden = allDone;
+    reviewCancelBtn.textContent = t().stopBtn;
+  } else {
+    const included = reviewRows.filter((r) => r.include).length;
+    reviewHeaderText.textContent = t().foundImages(reviewRows.length);
+    reviewConfirmBtn.hidden = false;
+    reviewConfirmBtn.textContent = t().translateBtn(included);
+    reviewConfirmBtn.disabled = included === 0;
+    reviewSelectAllBtn.hidden = false;
+    reviewSelectAllBtn.textContent = included === reviewRows.length && reviewRows.length > 0 ? t().selectNone : t().selectAll;
+    reviewCancelBtn.hidden = false;
+    reviewCancelBtn.textContent = t().cancelBtn;
+  }
+}
+
+/** Dispatches the one header button by phase -- 'Cancel' (discard the
+ * pending review batch, nothing gets translated) before confirm, 'Stop'
+ * (same tab-wide stop the old simple progress panel's button always did)
+ * after. */
+function cancelOrStopReview(): void {
+  if (reviewRows.some((r) => r.state !== 'review')) {
+    stopAllTranslations();
+  } else {
+    cancelReview();
+  }
+}
+
+function addReviewCandidate(img: HTMLImageElement): void {
+  if (reviewRows.some((r) => r.img === img)) return;
+  processed.add(img);
+  ensureReviewPanel();
+  const row = buildReviewRow(img);
+  reviewRows.push(row);
+  reviewListEl!.appendChild(row.rowEl);
+  reviewPanel!.hidden = false;
+  reviewPanelActive = true;
+  updateReviewHeader();
+}
+
+function cancelReview(): void {
+  for (const row of reviewRows) processed.delete(row.img);
+  reviewRows = [];
+  reviewListEl!.innerHTML = '';
+  reviewPanel!.hidden = true;
+  reviewPanelActive = false;
+}
+
+function confirmReview(): void {
+  const included = reviewRows.filter((r) => r.include);
+  const excluded = reviewRows.filter((r) => !r.include);
+  // Excluded rows are just "not this time" -- undo the add-at-review-time
+  // `processed` marking so the next manual scan offers them again. This
+  // used to leave them in `processed` permanently (meant for "this is a
+  // false positive, stop suggesting it"), but that also fired for the
+  // ordinary case of only wanting to translate a few images now and the
+  // rest later -- a second "Translate this page now" came back with
+  // nothing, since every previously-unchecked image was silently skipped
+  // before scanForCandidates even re-evaluated it.
+  for (const row of excluded) processed.delete(row.img);
+  for (const row of excluded) row.rowEl.remove();
+
+  reviewRows = included;
+  for (const row of reviewRows) {
+    row.state = 'queued';
+    updateRowStatusUI(row);
+    activeReviewRows.set(row.img, row);
+    // enqueueTranslation itself re-adds this to `processed` -- undo the
+    // add-at-review-time marking first so it doesn't just no-op there.
+    processed.delete(row.img);
+    enqueueTranslation(row.img);
+  }
+  updateReviewHeader();
+
+  if (reviewHideTimer) clearTimeout(reviewHideTimer);
+  const checkDone = () => {
+    updateReviewHeader();
+    if (reviewRows.every((r) => r.state !== 'queued' && r.state !== 'translating')) {
+      reviewHideTimer = setTimeout(() => {
+        reviewPanel!.hidden = true;
+        reviewListEl!.innerHTML = '';
+        reviewRows = [];
+        reviewPanelActive = false;
+        setReviewResourcePolling(false);
+      }, 4000);
+    }
+  };
+  reviewDoneCheck = checkDone;
+}
+// Called from pumpTranslationQueue's completion handler below (defined
+// after this point in the file) -- kept as a reassignable top-level `let`
+// rather than a forward reference so both halves stay simple functions.
+let reviewDoneCheck: (() => void) | null = null;
 
 /** Drops everything not yet started, tells the background script to cancel
  * whatever it's already created jobs for (freeing the backend's queue slot
@@ -114,14 +569,29 @@ function stopAllTranslations(): void {
   const dropped = translationQueue.splice(0, translationQueue.length);
   totalFinished += dropped.length;
   for (const img of dropped) {
+    processed.delete(img);
+    const src = img.currentSrc || img.src;
+    processedKeys.delete(src);
     const wrapper = img.parentElement;
     if (wrapper?.classList.contains('mwt-wrapper')) {
       wrapper.classList.remove('mwt-border--pending');
       wrapper.classList.add('mwt-border--cancelled');
-      wrapper.title = 'Cancelled.';
+      wrapper.title = t().rowCancelled;
+    }
+    // Still-queued review rows never reach pumpTranslationQueue's own
+    // finally-block status update (that only fires for ones it actually
+    // dequeued) -- update them here instead, or they'd be stuck showing
+    // "Queued…" forever even though nothing is coming for them anymore.
+    const reviewRow = activeReviewRows.get(img);
+    if (reviewRow) {
+      reviewRow.state = 'cancelled';
+      updateRowStatusUI(reviewRow);
+      activeReviewRows.delete(img);
     }
   }
   updateProgressPanel();
+  updateReviewHeader();
+  reviewDoneCheck?.();
   void browser.runtime.sendMessage({ type: 'STOP_TRANSLATIONS' }).catch((err) => {
     console.error(LOG, 'failed to send STOP_TRANSLATIONS', err);
   });
@@ -194,7 +664,7 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
     const wrapper = wrapImage(img);
     console.warn(LOG, 'skipping: unsupported image source', imageUrl);
     wrapper.classList.add('mwt-border--error');
-    wrapper.title = `Unsupported image source: ${imageUrl || '(empty)'}`;
+    wrapper.title = t().unsupportedImageSource(imageUrl);
     return;
   }
 
@@ -276,22 +746,35 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
   wrapper.classList.remove('mwt-border--pending');
 
   if (!response.ok || !response.translatedImageUrl) {
+    processed.delete(img);
+    if (!isLocalOnly) {
+      processedKeys.delete(imageUrl);
+    }
     wrapper.classList.add(response.cancelled ? 'mwt-border--cancelled' : 'mwt-border--error');
-    wrapper.title = response.cancelled ? 'Cancelled.' : (response.errorMessage ?? response.errorCode ?? 'Translation failed');
+    wrapper.title = response.cancelled ? t().rowCancelled : (response.errorMessage ?? response.errorCode ?? t().rowError);
+    if (!response.cancelled) {
+      let friendlyMsg = response.errorMessage ?? response.errorCode ?? t().toastFallback;
+      if (response.errorCode === 'SERVER_CONNECTION_ERROR') {
+        friendlyMsg = t().toastServerError;
+      } else if (response.errorCode === 'TRANSLATION_TIMEOUT') {
+        friendlyMsg = t().toastTimeout;
+      }
+      showToast(t().toastErrorTitle, friendlyMsg, 'error');
+    }
     return;
   }
 
   const overlay = document.createElement('img');
   overlay.className = 'mwt-overlay';
   overlay.src = response.translatedImageUrl;
-  overlay.alt = `${img.alt ?? ''} (translated)`;
+  overlay.alt = `${img.alt ?? ''} (${t().rowDone.toLowerCase()})`;
   wrapper.appendChild(overlay);
 
   const toggle = document.createElement('button');
   toggle.className = 'mwt-toggle';
   toggle.type = 'button';
-  toggle.textContent = 'EN/原';
-  toggle.title = 'Toggle original / translated';
+  toggle.textContent = t().toggleLabel;
+  toggle.title = t().toggleTooltip;
   toggle.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -308,7 +791,7 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
 // too keeps a slow page's backlog from ever building past a few images
 // deep, so each individual job's wait before it actually starts stays
 // short and predictable.
-const MAX_CONCURRENT_TRANSLATIONS = 3;
+const MAX_CONCURRENT_TRANSLATIONS = 1;
 let runningTranslations = 0;
 const translationQueue: HTMLImageElement[] = [];
 
@@ -317,10 +800,30 @@ function pumpTranslationQueue(): void {
     const img = translationQueue.shift()!;
     runningTranslations++;
     updateProgressPanel();
+    const reviewRow = activeReviewRows.get(img);
+    if (reviewRow) {
+      reviewRow.state = 'translating';
+      updateRowStatusUI(reviewRow);
+      updateReviewHeader();
+    }
     void translateImage(img).finally(() => {
       runningTranslations--;
       totalFinished++;
       updateProgressPanel();
+      if (reviewRow) {
+        // translateImage already recorded the outcome as a CSS class on
+        // the image's wrapper -- read it back instead of threading a
+        // separate callback through translateImage's own signature.
+        const wrapper = img.parentElement;
+        reviewRow.state = wrapper?.classList.contains('mwt-border--error')
+          ? 'error'
+          : wrapper?.classList.contains('mwt-border--cancelled')
+            ? 'cancelled'
+            : 'done';
+        updateRowStatusUI(reviewRow);
+        activeReviewRows.delete(img);
+        reviewDoneCheck?.();
+      }
       pumpTranslationQueue();
     });
   }
@@ -335,15 +838,31 @@ function enqueueTranslation(img: HTMLImageElement): void {
   pumpTranslationQueue();
 }
 
-function scanForCandidates(): void {
+/**
+ * @param mode 'auto' (default) enqueues every match straight away, same as
+ * always -- used by the MutationObserver on enabledOrigins, where the
+ * per-site opt-in already is the user's confirmation. 'manual' (the
+ * "Translate this page now" button/shortcut) instead collects matches into
+ * the review panel so the user can exclude false positives before any job
+ * is created for them.
+ */
+function scanForCandidates(mode: 'auto' | 'manual' = 'auto'): void {
   const images = document.querySelectorAll<HTMLImageElement>('img');
   let candidates = 0;
   for (const img of images) {
-    if (processed.has(img)) continue;
+    if (mode === 'auto' && processed.has(img)) continue;
+    if (mode === 'manual') {
+      if (img.parentElement?.querySelector('.mwt-overlay')) continue;
+      if (reviewRows.some((r) => r.img === img)) continue;
+    }
     const run = () => {
       if (isCandidateImage(img)) {
         candidates++;
-        enqueueTranslation(img);
+        if (mode === 'manual') {
+          addReviewCandidate(img);
+        } else {
+          enqueueTranslation(img);
+        }
       } else {
         console.debug(LOG, 'skipped (too small/odd shape)', {
           src: img.currentSrc || img.src,
@@ -387,6 +906,8 @@ export default defineContentScript({
     onSettingsChanged((next) => {
       const wasEnabled = isAutoEnabledHere();
       settings = next;
+      updateProgressPanel();
+      updateReviewHeader();
       // Flipped on for this origin while the page was already open: start
       // right away instead of waiting for the next DOM mutation / reload.
       if (!wasEnabled && isAutoEnabledHere()) scanForCandidates();
@@ -394,14 +915,46 @@ export default defineContentScript({
 
     if (isAutoEnabledHere()) scanForCandidates();
 
+    window.addEventListener('pagehide', () => {
+      stopAllTranslations();
+    });
+    window.addEventListener('beforeunload', () => {
+      stopAllTranslations();
+    });
+
     const observer = new MutationObserver(() => scheduleScan());
     observer.observe(document.documentElement, { childList: true, subtree: true });
 
     browser.runtime.onMessage.addListener((message: unknown) => {
       const msg = message as { type?: string; srcUrl?: string };
-      if (msg?.type === 'TRANSLATE_PAGE_NOW') {
+      if (msg?.type === 'JOB_PROGRESS') {
+        const p = message as {
+          type: 'JOB_PROGRESS';
+          imageUrl?: string;
+          stage?: string;
+          progressMessage?: string;
+          progressPercent?: number;
+        };
+        if (p.progressMessage) {
+          currentProgressDetail = p.progressMessage;
+          currentProgressPercent = p.progressPercent ?? null;
+          updateProgressPanel();
+        }
+        if (p.imageUrl) {
+          for (const [img, row] of activeReviewRows.entries()) {
+            const src = img.currentSrc || img.src;
+            if (src === p.imageUrl || p.imageUrl.includes(src)) {
+              if (p.progressMessage) {
+                row.statusEl.textContent = p.progressMessage;
+                row.statusEl.title = p.progressMessage;
+              }
+              break;
+            }
+          }
+        }
+      } else if (msg?.type === 'TRANSLATE_PAGE_NOW') {
         console.log(LOG, 'manual translate requested for this tab');
-        scanForCandidates();
+        scanForCandidates('manual');
       } else if (msg?.type === 'TRANSLATE_ONE_IMAGE' && msg.srcUrl) {
         const img = [...document.querySelectorAll<HTMLImageElement>('img')].find(
           (el) => el.src === msg.srcUrl || el.currentSrc === msg.srcUrl,
