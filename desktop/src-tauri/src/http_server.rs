@@ -66,7 +66,31 @@ async fn create_job(State(state): State<AppState>, Json(body): Json<CreateJobBod
 async fn get_job(State(state): State<AppState>, Path(job_id): Path<String>) -> impl IntoResponse {
     let job = state.jobs.lock().unwrap().get(&job_id).cloned();
     match job {
-        Some(status) => Json(status).into_response(),
+        Some(mut status) => {
+            // If the job is currently processing and a model download is active,
+            // report the live download progress so the client can show a progress bar.
+            if status.status == "processing" {
+                if let Some(dl) = crate::download_tracker::get_current_download() {
+                    status.stage = Some("downloading".into());
+                    status.progress_percent = Some(dl.percent);
+                    let mb_done = dl.completed_bytes / (1024 * 1024);
+                    let mb_total = dl.total_bytes / (1024 * 1024);
+                    let is_pt = crate::settings::load(&state.app_handle).ui_language.starts_with("pt");
+                    status.progress_message = Some(if is_pt {
+                        format!(
+                            "Baixando modelo {}: {:.1}% ({}/{} MB)... Isso ocorre apenas no primeiro uso.",
+                            dl.name, dl.percent, mb_done, mb_total
+                        )
+                    } else {
+                        format!(
+                            "Downloading model {}: {:.1}% ({}/{} MB)... This only happens on first use.",
+                            dl.name, dl.percent, mb_done, mb_total
+                        )
+                    });
+                }
+            }
+            Json(status).into_response()
+        }
         None => (StatusCode::NOT_FOUND, "Job not found").into_response(),
     }
 }
@@ -83,31 +107,48 @@ async fn healthz() -> impl IntoResponse {
     Json(serde_json::json!({ "ok": true }))
 }
 
-/// Lets the browser extension's popup show the same live CPU/RAM reading
-/// (and configured caps/VRAM budget) as the desktop settings window --
-/// see resource_usage.rs.
+/// Lets the browser extension's popup and settings window fetch the live
+/// CPU/RAM/VRAM reading and model status.
 async fn get_resource_usage(State(state): State<AppState>) -> impl IntoResponse {
     let settings = crate::settings::load(&state.app_handle);
-    Json(crate::resource_usage::snapshot(&settings))
+    let models_loaded = crate::engines::koharu_engine::is_loaded().await;
+    let active_jobs = state.active_jobs.load(std::sync::atomic::Ordering::Relaxed);
+    Json(crate::resource_usage::snapshot(&settings, models_loaded, active_jobs))
 }
 
-pub async fn run(state: AppState, port: u16) {
+/// Explicit endpoint to unload ML models from memory on demand.
+async fn unload_pipeline(State(state): State<AppState>) -> impl IntoResponse {
+    jobs::cancel_all_jobs(&state);
+    let unloaded = crate::engines::koharu_engine::unload().await;
+    Json(serde_json::json!({ "ok": true, "unloaded": unloaded })).into_response()
+}
+
+/// Binds the port up front so a conflict (another app already using it)
+/// surfaces to the caller immediately, instead of only after `serve`
+/// below has been running in the background for a while -- `start_server`
+/// (main.rs) awaits this before telling the UI the server actually
+/// started.
+pub async fn bind(port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await
+}
+
+/// Runs until `shutdown` fires (see `stop_server` in main.rs) or the
+/// listener errors out.
+pub async fn serve(state: AppState, listener: tokio::net::TcpListener, shutdown: tokio::sync::oneshot::Receiver<()>) {
     let app = Router::new()
         .route("/api/jobs", post(create_job))
         .route("/api/jobs/{job_id}", get(get_job).delete(cancel_job))
         .route("/healthz", get(healthz))
         .route("/api/resources", get(get_resource_usage))
+        .route("/api/pipeline/unload", post(unload_pipeline))
+        .route("/api/resources/unload", post(unload_pipeline))
         .nest_service("/cache", ServeDir::new(state.cache_dir.clone()))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{port}");
-    match tokio::net::TcpListener::bind(&addr).await {
-        Ok(listener) => {
-            let _ = axum::serve(listener, app).await;
-        }
-        Err(e) => {
-            eprintln!("Failed to bind local server on {addr}: {e}");
-        }
-    }
+    let _ = axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = shutdown.await;
+        })
+        .await;
 }

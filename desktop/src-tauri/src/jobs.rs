@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -22,6 +24,36 @@ pub struct CreateJobRequest {
     pub target_lang: String,
 }
 
+struct ActiveJobGuard {
+    state: AppState,
+}
+
+impl Drop for ActiveJobGuard {
+    fn drop(&mut self) {
+        let remaining = self.state.active_jobs.fetch_sub(1, Ordering::SeqCst) - 1;
+        if remaining == 0 {
+            // When all translation jobs across the server have finished,
+            // schedule an idle cooldown (60 seconds) before unloading models.
+            let (tx, mut rx) = tokio::sync::oneshot::channel();
+            self.state.idle_timer_cancel.lock().unwrap().replace(tx);
+            let state_clone = self.state.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::select! {
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {
+                        if state_clone.active_jobs.load(Ordering::SeqCst) == 0 {
+                            tracing::info!("Idle cooldown reached (60s with 0 active jobs). Unloading models from RAM...");
+                            let _ = engines::koharu_engine::unload().await;
+                        }
+                    }
+                    _ = &mut rx => {
+                        // Cancelled by a newly arrived job
+                    }
+                }
+            });
+        }
+    }
+}
+
 pub fn create_job(state: AppState, req: CreateJobRequest) -> String {
     let job_id = Uuid::new_v4().simple().to_string();
     state
@@ -29,6 +61,11 @@ pub fn create_job(state: AppState, req: CreateJobRequest) -> String {
         .lock()
         .unwrap()
         .insert(job_id.clone(), JobStatus { status: "queued".into(), ..Default::default() });
+
+    state.active_jobs.fetch_add(1, Ordering::SeqCst);
+    if let Some(cancel_tx) = state.idle_timer_cancel.lock().unwrap().take() {
+        let _ = cancel_tx.send(());
+    }
 
     let job_id_clone = job_id.clone();
     tauri::async_runtime::spawn(async move {
@@ -41,19 +78,48 @@ pub fn create_job(state: AppState, req: CreateJobRequest) -> String {
 /// Marks a job cancelled. Returns false if the job id is unknown (already
 /// finished and nobody's holding a reference anymore, or never existed).
 ///
-/// A job not yet past its `local_engine_slots` wait sees this and bails
-/// out before doing any real work. One already mid-inference can't be
-/// safely interrupted -- it's a synchronous call inside
-/// `spawn_blocking` -- so it keeps running in the background; its result
-/// is simply never surfaced, since the extension has already stopped
-/// polling for it by the time it finishes.
+/// A job not yet past its `local_engine_slots` wait sees `cancelled_jobs`
+/// and bails out before doing any real work. One already mid-pipeline gets
+/// a real interrupt too, via `running_stops`' `StopToken` (see
+/// state.rs's docs on that field and engines/koharu_engine.rs) -- not
+/// instant (Koharu checks it between pipeline stages, not mid-stage), but
+/// a real interrupt now instead of always running to completion in the
+/// background and holding `local_engine_slots`' one permit hostage until
+/// it finishes on its own.
 pub fn cancel_job(state: &AppState, job_id: &str) -> bool {
-    if !state.jobs.lock().unwrap().contains_key(job_id) {
+    // A job that already reached a terminal state (succeeded/failed/
+    // cancelled -- e.g. it finished naturally in the gap between the
+    // client deciding to cancel and this call landing) keeps that real
+    // outcome. Without this check, cancelling a job that already
+    // succeeded silently flipped its status backward to "cancelled",
+    // hiding a result that's sitting right there in the cache -- found
+    // 2026-10-25 testing the running_stops interrupt above against a job
+    // that turned out to finish before the cancel request arrived.
+    let already_terminal = state
+        .jobs
+        .lock()
+        .unwrap()
+        .get(job_id)
+        .map(|s| matches!(s.status.as_str(), "succeeded" | "failed" | "cancelled"))
+        .unwrap_or(true); // unwrap_or(true): unknown id, nothing to cancel either way
+    if already_terminal {
         return false;
     }
     state.cancelled_jobs.lock().unwrap().insert(job_id.to_string());
+    if let Some(stop) = state.running_stops.lock().unwrap().get(job_id) {
+        stop.stop();
+    }
     set_status(state, job_id, JobStatus { status: "cancelled".into(), ..Default::default() });
     true
+}
+
+/// Cancels all pending or actively processing jobs immediately.
+pub fn cancel_all_jobs(state: &AppState) {
+    let job_ids: Vec<String> = state.jobs.lock().unwrap().keys().cloned().collect();
+    for id in &job_ids {
+        cancel_job(state, id);
+    }
+    state.active_jobs.store(0, Ordering::SeqCst);
 }
 
 fn is_cancelled(state: &AppState, job_id: &str) -> bool {
@@ -113,6 +179,7 @@ fn engine_order(preference: &str) -> &'static [&'static str] {
 }
 
 async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
+    let _active_guard = ActiveJobGuard { state: state.clone() };
     set_status(&state, &job_id, JobStatus { status: "processing".into(), ..Default::default() });
 
     let client = reqwest::Client::new();
@@ -145,36 +212,13 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
         format!("{:x}", hasher.finalize())
     };
     let app_settings = settings::load(&state.app_handle);
-    // Keyed on engine_preference + a version tag for the local pipeline
-    // (bumped whenever its models/behavior change materially -- see
-    // engines::local_pipeline::PIPELINE_VERSION) so switching engines or
-    // upgrading the local models can never silently serve a stale result
-    // from a previous engine/model generation. Pure image-hash keying
-    // caused exactly that confusion once already: re-testing the same
-    // page after swapping the local translation model kept returning the
-    // old model's cached output.
-    // Also folds in detection_score_threshold and the three per-stage
-    // catalog selections (ocr/inpainting/translation_model). This matters
-    // now that a stage can have more than one selectable option
-    // (models.rs's catalog): PIPELINE_VERSION alone only changes when the
-    // *code* changes, not when the user picks a different already-shipped
-    // model for the same stage -- without these in the key, translating
-    // the same image twice with two different selected translation models
-    // would silently serve the first model's cached result for the
-    // second, exactly the stale-cache bug this whole key format exists to
-    // prevent. Unaffected by the engine being "google" for this job: the
-    // fields are cheap to include and keep the key stable regardless of
-    // which engine ends up used.
     let cache_filename = format!(
-        "{}_{}_{}_{}_{:.2}_{}_{}_{}.png",
+        "{}_{}_{}_{}_{:.2}.png",
         sha256_hex,
         req.target_lang,
         app_settings.engine_preference,
-        engines::local_pipeline::PIPELINE_VERSION,
+        engines::koharu_engine::ENGINE_VERSION,
         app_settings.detection_score_threshold,
-        app_settings.ocr_model,
-        app_settings.inpainting_model,
-        app_settings.translation_model
     );
     let cache_path = state.cache_dir.join(&cache_filename);
 
@@ -199,21 +243,32 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
         }
         let result = match *engine_name {
             "local" => {
-                // Back to "queued" (from "processing", set at the top of
-                // this function) while waiting for a slot, so a client
-                // polling this job can tell "still in line behind other
-                // images" apart from "actually running".
                 set_status(&state, &job_id, JobStatus { status: "queued".into(), ..Default::default() });
                 let _permit =
                     state.local_engine_slots.clone().acquire_owned().await.expect("semaphore is never closed");
-                // Re-check: may have been cancelled while waiting in line
-                // for a slot -- no point starting a multi-minute local
-                // translation for a job nobody's polling anymore.
                 if is_cancelled(&state, &job_id) {
                     return;
                 }
                 set_status(&state, &job_id, JobStatus { status: "processing".into(), ..Default::default() });
-                engines::local_pipeline::translate(state.app_handle.clone(), image_bytes.clone(), &req.target_lang).await
+                let stop = koharu_pipeline::StopToken::default();
+                state.running_stops.lock().unwrap().insert(job_id.clone(), stop.clone());
+
+                let state_p = state.clone();
+                let job_id_p = job_id.clone();
+                let on_progress = Arc::new(move |msg: String, pct: Option<f32>| {
+                    update_progress(&state_p, &job_id_p, msg, pct);
+                });
+
+                let result = engines::koharu_engine::translate(
+                    state.app_handle.clone(),
+                    image_bytes.clone(),
+                    &req.target_lang,
+                    stop,
+                    Some(on_progress),
+                )
+                .await;
+                state.running_stops.lock().unwrap().remove(&job_id);
+                result
             }
             "google" => {
                 engines::google::translate(
@@ -249,6 +304,15 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
         }
     }
 
+    // A job stopped mid-pipeline (see running_stops above) surfaces here as
+    // a plain Err from translate() like any other failure -- without this
+    // check, the "failed" status set below would overwrite the "cancelled"
+    // status cancel_job already set, and the extension would show the
+    // wrong outcome for a job the user explicitly stopped.
+    if is_cancelled(&state, &job_id) {
+        return;
+    }
+
     let err = last_error.unwrap_or_else(|| EngineError::new("TRANSLATION_FAILED", "All configured engines failed."));
     set_status(
         &state,
@@ -269,3 +333,13 @@ fn cache_url(settings: &Settings, filename: &str) -> String {
 fn set_status(state: &AppState, job_id: &str, status: JobStatus) {
     state.jobs.lock().unwrap().insert(job_id.to_string(), status);
 }
+
+fn update_progress(state: &AppState, job_id: &str, message: String, percent: Option<f32>) {
+    if let Some(status) = state.jobs.lock().unwrap().get_mut(job_id) {
+        status.progress_message = Some(message);
+        if let Some(p) = percent {
+            status.progress_percent = Some(p);
+        }
+    }
+}
+

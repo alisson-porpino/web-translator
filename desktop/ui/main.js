@@ -1,21 +1,4 @@
 const invoke = window.__TAURI__.core.invoke;
-const { listen } = window.__TAURI__.event;
-
-const CATEGORY_LABELS = {
-  detection: 'Detection',
-  ocr: 'OCR',
-  inpainting: 'Inpainting (cleanup)',
-  translation: 'Translation',
-};
-
-// Which Settings field (see settings.rs) holds the chosen option id for a
-// category -- "detection" has none: there's only ever the one bundled
-// option, nothing to remember a choice for.
-const CATEGORY_SETTINGS_FIELD = {
-  ocr: 'ocrModel',
-  inpainting: 'inpaintingModel',
-  translation: 'translationModel',
-};
 
 const el = {
   enginePreference: document.getElementById('enginePreference'),
@@ -28,42 +11,45 @@ const el = {
   detectionScoreThreshold: document.getElementById('detectionScoreThreshold'),
   maxCpuThreads: document.getElementById('maxCpuThreads'),
   maxMemoryMb: document.getElementById('maxMemoryMb'),
-  maxVramMb: document.getElementById('maxVramMb'),
-  llmTemperature: document.getElementById('llmTemperature'),
-  llmTopK: document.getElementById('llmTopK'),
-  llmTopP: document.getElementById('llmTopP'),
-  llmMinP: document.getElementById('llmMinP'),
-  llmMaxTokens: document.getElementById('llmMaxTokens'),
-  llmRepeatPenalty: document.getElementById('llmRepeatPenalty'),
-  llmFrequencyPenalty: document.getElementById('llmFrequencyPenalty'),
-  llmPresencePenalty: document.getElementById('llmPresencePenalty'),
-  serverAddr: document.getElementById('serverAddr'),
+  modelsDir: document.getElementById('modelsDir'),
+  browseModelsDirBtn: document.getElementById('browseModelsDirBtn'),
+  ocrModel: document.getElementById('ocrModel'),
+  inpaintingModel: document.getElementById('inpaintingModel'),
+  translationModel: document.getElementById('translationModel'),
+  translationQuantization: document.getElementById('translationQuantization'),
+  savePipelineModelsBtn: document.getElementById('savePipelineModelsBtn'),
+  pipelineModelsFeedback: document.getElementById('pipelineModelsFeedback'),
   feedback: document.getElementById('feedback'),
   form: document.getElementById('settingsForm'),
   usageText: document.getElementById('usageText'),
   usageDot: document.querySelector('#usageStatus .dot'),
   resourceText: document.getElementById('resourceText'),
+  resourceDetailText: document.getElementById('resourceDetailText'),
   resourceDot: document.querySelector('#resourceStatus .dot'),
-  modelCatalog: document.getElementById('modelCatalog'),
-  downloadProgressWrap: document.getElementById('downloadProgressWrap'),
-  downloadProgressBar: document.getElementById('downloadProgressBar'),
-  downloadProgressText: document.getElementById('downloadProgressText'),
-  manageOverlay: document.getElementById('manageOverlay'),
-  manageTitle: document.getElementById('manageTitle'),
-  manageList: document.getElementById('manageList'),
-  manageCloseBtn: document.getElementById('manageCloseBtn'),
+  unloadModelsBtn: document.getElementById('unloadModelsBtn'),
+  downloadBanner: document.getElementById('downloadBanner'),
+  downloadTitle: document.getElementById('downloadTitle'),
+  downloadPercent: document.getElementById('downloadPercent'),
+  downloadBarFill: document.getElementById('downloadBarFill'),
+  serverDot: document.getElementById('serverDot'),
+  serverStatusText: document.getElementById('serverStatusText'),
+  serverToggleBtn: document.getElementById('serverToggleBtn'),
+  serverError: document.getElementById('serverError'),
+  installChromeBtn: document.getElementById('installChromeBtn'),
+  installFirefoxBtn: document.getElementById('installFirefoxBtn'),
+  extensionInstallFeedback: document.getElementById('extensionInstallFeedback'),
+  extensionInstallSteps: document.getElementById('extensionInstallSteps'),
+  extensionStepChrome: document.getElementById('extensionStepChrome'),
+  extensionStepFirefox: document.getElementById('extensionStepFirefox'),
+  headerLanguageSelect: document.getElementById('headerLanguageSelect'),
 };
 
-// The model-choice selects live inside settings (ocrModel/inpaintingModel/
-// translationModel), separate from the rest of the form's simple
-// input-to-field mapping, since they're rebuilt dynamically from the
-// catalog rather than fixed markup -- tracked here instead.
 let currentSettings = null;
-let currentCatalog = [];
 // Ordered list of font paths (Settings.fontPaths) -- rendered as a row
-// per entry below. Tracked separately from currentSettings the same way
-// the catalog selects are, since the rows are rebuilt dynamically rather
-// than being fixed markup.
+// per entry below. Tracked separately from currentSettings since the
+// rows are rebuilt dynamically rather than being fixed markup. Only
+// read by the Google engine path today (engines/google.rs) -- the local
+// Koharu engine does its own typesetting.
 let currentFontPaths = [];
 
 function renderFontStack() {
@@ -74,7 +60,7 @@ function renderFontStack() {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.placeholder = i === 0 ? 'Main lettering font .ttf/.otf path' : 'Fallback font .ttf/.otf path';
+    input.placeholder = i === 0 ? window.mwtI18n.get('fontStackMainPlaceholder') : window.mwtI18n.get('fontStackFallbackPlaceholder');
     input.value = path;
     input.addEventListener('input', () => {
       currentFontPaths[i] = input.value;
@@ -84,7 +70,7 @@ function renderFontStack() {
     const up = document.createElement('button');
     up.type = 'button';
     up.textContent = '↑';
-    up.title = 'Move up (tried earlier)';
+    up.title = 'Mover para cima (prioridade maior)';
     up.disabled = i === 0;
     up.addEventListener('click', () => {
       [currentFontPaths[i - 1], currentFontPaths[i]] = [currentFontPaths[i], currentFontPaths[i - 1]];
@@ -95,7 +81,7 @@ function renderFontStack() {
     const down = document.createElement('button');
     down.type = 'button';
     down.textContent = '↓';
-    down.title = 'Move down (tried later)';
+    down.title = 'Mover para baixo (prioridade menor)';
     down.disabled = i === currentFontPaths.length - 1;
     down.addEventListener('click', () => {
       [currentFontPaths[i], currentFontPaths[i + 1]] = [currentFontPaths[i + 1], currentFontPaths[i]];
@@ -106,7 +92,7 @@ function renderFontStack() {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = '×';
-    remove.title = 'Remove';
+    remove.title = 'Remover';
     remove.addEventListener('click', () => {
       currentFontPaths.splice(i, 1);
       renderFontStack();
@@ -117,6 +103,18 @@ function renderFontStack() {
   });
 }
 
+el.browseModelsDirBtn.addEventListener('click', async () => {
+  try {
+    const picked = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+    if (typeof picked === 'string') {
+      el.modelsDir.value = picked;
+    }
+  } catch (err) {
+    el.feedback.classList.add('error');
+    el.feedback.textContent = `Não foi possível abrir o seletor de pastas: ${err}`;
+  }
+});
+
 el.addFontBtn.addEventListener('click', () => {
   currentFontPaths.push('');
   renderFontStack();
@@ -124,24 +122,15 @@ el.addFontBtn.addEventListener('click', () => {
   inputs[inputs.length - 1]?.focus();
 });
 
-// The llm* generation settings are all Option<T> on the Rust side (see
-// settings.rs) -- an empty input means "unset" (null, not 0), different
-// from every other numeric field on this form which always has a real
-// value. These two helpers keep that distinction at the edges instead of
-// scattering `=== '' ? null : Number(...)` everywhere.
-function applyOptionalNumber(input, value) {
-  input.value = value === null || value === undefined ? '' : value;
-}
-
-function readOptionalNumber(input) {
-  const raw = input.value.trim();
-  if (raw === '') return null;
-  const n = Number(raw);
-  return Number.isNaN(n) ? null : n;
-}
-
 function applySettings(s) {
   currentSettings = s;
+  const lang = s.ui_language || 'pt';
+  if (el.headerLanguageSelect) {
+    el.headerLanguageSelect.value = lang;
+  }
+  if (window.mwtI18n) {
+    window.mwtI18n.setLanguage(lang);
+  }
   el.enginePreference.value = s.enginePreference;
   el.googleApiKey.value = s.googleApiKey;
   el.googleDailyCap.value = s.googleDailyRequestCap;
@@ -152,21 +141,35 @@ function applySettings(s) {
   el.detectionScoreThreshold.value = s.detectionScoreThreshold;
   el.maxCpuThreads.value = s.maxCpuThreads;
   el.maxMemoryMb.value = s.maxMemoryMb;
-  el.maxVramMb.value = s.maxVramMb;
-  applyOptionalNumber(el.llmTemperature, s.llmTemperature);
-  applyOptionalNumber(el.llmTopK, s.llmTopK);
-  applyOptionalNumber(el.llmTopP, s.llmTopP);
-  applyOptionalNumber(el.llmMinP, s.llmMinP);
-  applyOptionalNumber(el.llmMaxTokens, s.llmMaxTokens);
-  applyOptionalNumber(el.llmRepeatPenalty, s.llmRepeatPenalty);
-  applyOptionalNumber(el.llmFrequencyPenalty, s.llmFrequencyPenalty);
-  applyOptionalNumber(el.llmPresencePenalty, s.llmPresencePenalty);
-  el.serverAddr.textContent = `http://127.0.0.1:${s.port}`;
+  el.modelsDir.value = s.modelsDir || '';
+}
+
+if (el.headerLanguageSelect) {
+  el.headerLanguageSelect.addEventListener('change', async () => {
+    const lang = el.headerLanguageSelect.value;
+    if (window.mwtI18n) {
+      window.mwtI18n.setLanguage(lang);
+    }
+    renderFontStack();
+    renderQuantizationOptions(el.translationModel.value);
+    await refreshServerStatus();
+    await refreshUsage();
+    await refreshResourceUsage();
+    if (currentSettings) {
+      currentSettings.ui_language = lang;
+      try {
+        await invoke('save_settings', { settings: readSettings() });
+      } catch (err) {
+        console.error('Failed to auto-save language', err);
+      }
+    }
+  });
 }
 
 function readSettings() {
   return {
     ...currentSettings,
+    ui_language: el.headerLanguageSelect?.value || currentSettings?.ui_language || 'pt',
     port: Number(el.port.value) || 8000,
     enginePreference: el.enginePreference.value,
     googleApiKey: el.googleApiKey.value,
@@ -176,273 +179,252 @@ function readSettings() {
     detectionScoreThreshold: Math.min(1, Math.max(0, Number(el.detectionScoreThreshold.value) || 0)),
     maxCpuThreads: Math.max(0, Number(el.maxCpuThreads.value) || 0),
     maxMemoryMb: Math.max(0, Number(el.maxMemoryMb.value) || 0),
-    maxVramMb: Math.max(0, Number(el.maxVramMb.value) || 0),
-    llmTemperature: readOptionalNumber(el.llmTemperature),
-    llmTopK: readOptionalNumber(el.llmTopK),
-    llmTopP: readOptionalNumber(el.llmTopP),
-    llmMinP: readOptionalNumber(el.llmMinP),
-    llmMaxTokens: readOptionalNumber(el.llmMaxTokens),
-    llmRepeatPenalty: readOptionalNumber(el.llmRepeatPenalty),
-    llmFrequencyPenalty: readOptionalNumber(el.llmFrequencyPenalty),
-    llmPresencePenalty: readOptionalNumber(el.llmPresencePenalty),
+    modelsDir: el.modelsDir.value.trim() || null,
   };
 }
+
+// The local server (http_server.rs) never starts on its own -- a native
+// app on this machine could already own the configured port, and
+// silently rebinding it on every launch would fail with no visible
+// feedback. The user starts/stops it explicitly here instead.
+async function refreshServerStatus() {
+  try {
+    const status = await invoke('get_server_status');
+    if (status.running) {
+      el.serverDot.style.background = 'var(--ok)';
+      el.serverStatusText.textContent = window.mwtI18n.get('serverRunning', status.port);
+      el.serverToggleBtn.textContent = window.mwtI18n.get('stop');
+    } else {
+      el.serverDot.style.background = '#9a9a9a';
+      el.serverStatusText.textContent = window.mwtI18n.get('serverStopped');
+      el.serverToggleBtn.textContent = window.mwtI18n.get('start');
+    }
+  } catch {
+    el.serverDot.style.background = 'var(--bad)';
+    el.serverStatusText.textContent = window.mwtI18n.get('serverUnavailable');
+  }
+}
+
+el.serverToggleBtn.addEventListener('click', async () => {
+  el.serverError.hidden = true;
+  el.serverToggleBtn.disabled = true;
+  try {
+    const status = await invoke('get_server_status');
+    if (status.running) {
+      await invoke('stop_server');
+    } else {
+      await invoke('start_server');
+    }
+  } catch (err) {
+    el.serverError.hidden = false;
+    el.serverError.textContent = String(err);
+  }
+  el.serverToggleBtn.disabled = false;
+  await refreshServerStatus();
+});
+
+async function installExtension(target) {
+  el.extensionInstallFeedback.classList.remove('error');
+  el.extensionInstallFeedback.textContent = window.mwtI18n.get('extensionOpening');
+  el.extensionInstallSteps.hidden = true;
+  el.extensionStepChrome.hidden = true;
+  el.extensionStepFirefox.hidden = true;
+  try {
+    await invoke('install_extension', { target });
+    el.extensionInstallFeedback.textContent = window.mwtI18n.get('folderOpened');
+    el.extensionInstallSteps.hidden = false;
+    (target === 'chrome' ? el.extensionStepChrome : el.extensionStepFirefox).hidden = false;
+  } catch (err) {
+    el.extensionInstallFeedback.classList.add('error');
+    el.extensionInstallFeedback.textContent = String(err);
+  }
+}
+
+el.installChromeBtn.addEventListener('click', () => installExtension('chrome'));
+el.installFirefoxBtn.addEventListener('click', () => installExtension('firefox'));
 
 async function load() {
   const settings = await invoke('get_settings');
   applySettings(settings);
 }
 
+// Koharu's full local translation catalog (~27 models as of the pinned
+// rev), fetched once and kept here so the quantization dropdown can be
+// re-populated whenever the model dropdown changes, without a round trip.
+let translationModels = [];
+
+function renderQuantizationOptions(modelId) {
+  const model = translationModels.find((m) => m.model === modelId);
+  el.translationQuantization.innerHTML = '';
+  for (const q of model?.quantizations ?? []) {
+    const opt = document.createElement('option');
+    opt.value = q.id;
+    opt.textContent = q.downloaded ? q.name : `${q.name} ${window.mwtI18n.get('willDownload')}`;
+    el.translationQuantization.appendChild(opt);
+  }
+}
+
+el.translationModel.addEventListener('change', () => {
+  renderQuantizationOptions(el.translationModel.value);
+});
+
+async function loadPipelineModels() {
+  try {
+    const models = await invoke('get_pipeline_models');
+    el.ocrModel.value = models.ocr;
+    el.inpaintingModel.value = models.inpainting;
+  } catch (err) {
+    el.pipelineModelsFeedback.classList.add('error');
+    el.pipelineModelsFeedback.textContent = `Não foi possível ler a seleção de modelos do Koharu: ${err}`;
+  }
+
+  try {
+    const [models, selection] = await Promise.all([
+      invoke('get_translation_models'),
+      invoke('get_translation_selection'),
+    ]);
+    translationModels = models;
+    el.translationModel.innerHTML = '';
+    for (const m of models) {
+      const opt = document.createElement('option');
+      opt.value = m.model;
+      opt.textContent = m.name;
+      el.translationModel.appendChild(opt);
+    }
+    if (selection.model && models.some((m) => m.model === selection.model)) {
+      el.translationModel.value = selection.model;
+    }
+    renderQuantizationOptions(el.translationModel.value);
+    if (selection.quantization) {
+      el.translationQuantization.value = selection.quantization;
+    }
+  } catch (err) {
+    el.translationModel.innerHTML = '<option value="">Não foi possível carregar</option>';
+    el.pipelineModelsFeedback.classList.add('error');
+    el.pipelineModelsFeedback.textContent = `Não foi possível ler o catálogo de tradução do Koharu: ${err}`;
+  }
+}
+
+el.savePipelineModelsBtn.addEventListener('click', async () => {
+  el.pipelineModelsFeedback.classList.remove('error');
+  el.pipelineModelsFeedback.textContent = window.mwtI18n.get('saving');
+  try {
+    await invoke('set_pipeline_models', { ocr: el.ocrModel.value, inpainting: el.inpainpaintingModel?.value || el.inpaintingModel.value });
+    if (el.translationModel.value) {
+      await invoke('set_translation_model', {
+        model: el.translationModel.value,
+        quantization: el.translationQuantization.value || null,
+      });
+    }
+    el.pipelineModelsFeedback.textContent = window.mwtI18n.get('pipelineModelsSaved');
+  } catch (err) {
+    el.pipelineModelsFeedback.classList.add('error');
+    el.pipelineModelsFeedback.textContent = window.mwtI18n.get('saveError', err);
+  }
+  setTimeout(() => {
+    el.pipelineModelsFeedback.textContent = '';
+  }, 3000);
+});
+
 async function refreshUsage() {
   try {
     const { count, cap } = await invoke('get_google_usage');
-    el.usageText.textContent = cap > 0 ? `Google usage today: ${count}/${cap} requests` : `Google usage today: ${count} requests (no cap set)`;
+    el.usageText.textContent = window.mwtI18n.get('googleUsage', count, cap);
     el.usageDot.style.background = cap > 0 && count >= cap ? '#dc2626' : cap > 0 && count >= cap * 0.8 ? '#f59e0b' : '#16a34a';
   } catch {
-    el.usageText.textContent = 'Google usage today: unavailable';
+    el.usageText.textContent = window.mwtI18n.get('googleUsageUnavailable');
   }
 }
 
 async function refreshResourceUsage() {
   try {
     const u = await invoke('get_resource_usage');
-    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads} threads)` : '';
-    const ramCap = u.maxMemoryMb > 0 ? ` / cap ${u.maxMemoryMb}MB` : '';
-    const vram = u.maxVramMb > 0 ? ` · VRAM budget ${u.maxVramMb}MB` : '';
-    el.resourceText.textContent =
-      `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · RAM ${u.usedMemoryMb}/${u.totalMemoryMb}MB${ramCap}${vram}`;
-    el.resourceDot.style.background = u.cpuPercent >= 90 ? '#dc2626' : u.cpuPercent >= 70 ? '#f59e0b' : '#16a34a';
-  } catch {
-    el.resourceText.textContent = 'CPU / RAM: unavailable';
-  }
-}
+    const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads}t)` : '';
+    const procMem = u.processMemoryMb != null ? `${u.processMemoryMb} MB` : `${u.usedMemoryMb} MB`;
+    const gpuText = u.gpuName
+      ? ` · GPU (${u.gpuName}): ${u.vramUsedMb || 0}/${u.vramTotalMb || 0} MB`
+      : u.vramUsedMb != null
+        ? ` · VRAM: ${u.vramUsedMb}/${u.vramTotalMb || 0} MB`
+        : '';
 
-function formatBytes(bytes) {
-  if (!bytes) return '0 MB';
-  const mb = bytes / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-}
+    const appRamLabel = window.mwtI18n.get('appRam');
+    const sysRamLabel = window.mwtI18n.get('sysRam');
+    el.resourceText.textContent = `CPU ${Math.round(u.cpuPercent)}%${cpuCap} · ${appRamLabel}: ${procMem}${gpuText}`;
 
-// --- Model catalog (pick-per-stage + manage/download/delete) -------------
-
-async function refreshCatalog() {
-  try {
-    currentCatalog = await invoke('get_model_catalog');
-    renderCatalog();
-  } catch (err) {
-    el.modelCatalog.innerHTML = `<p class="hint">Could not load the model catalog: ${err}</p>`;
-  }
-}
-
-function categoryOf(id) {
-  return currentCatalog.find((c) => c.category === id);
-}
-
-function optionOf(categoryId, optionId) {
-  return categoryOf(categoryId)?.options.find((o) => o.id === optionId);
-}
-
-function renderCatalog() {
-  el.modelCatalog.innerHTML = '';
-  for (const cat of currentCatalog) {
-    const settingsField = CATEGORY_SETTINGS_FIELD[cat.category];
-    const selectedId = settingsField ? currentSettings?.[settingsField] : cat.options[0]?.id;
-
-    const row = document.createElement('div');
-    row.className = 'catalog-row';
-
-    const head = document.createElement('div');
-    head.className = 'catalog-row__head';
-    const stage = document.createElement('span');
-    stage.className = 'catalog-row__stage';
-    stage.textContent = CATEGORY_LABELS[cat.category] ?? cat.category;
-    head.appendChild(stage);
-    if (cat.options.length > 1 || cat.category !== 'detection') {
-      const manageBtn = document.createElement('button');
-      manageBtn.type = 'button';
-      manageBtn.className = 'catalog-row__manage';
-      manageBtn.textContent = '⚙ Manage';
-      manageBtn.addEventListener('click', () => openManage(cat.category));
-      head.appendChild(manageBtn);
+    const sysUsed = u.systemUsedMemoryMb ?? u.usedMemoryMb;
+    const sysTotal = u.systemTotalMemoryMb ?? u.totalMemoryMb;
+    const modelStatus = u.modelsLoaded ? window.mwtI18n.get('modelsActive') : window.mwtI18n.get('modelsIdle');
+    const jobsInfo = u.activeJobs > 0 ? window.mwtI18n.get('jobsProcessing', u.activeJobs) : '';
+    if (el.resourceDetailText) {
+      el.resourceDetailText.textContent = `${sysRamLabel}: ${sysUsed}/${sysTotal} MB · ${modelStatus}${jobsInfo}`;
     }
-    row.appendChild(head);
 
-    const picker = document.createElement('div');
-    picker.className = 'catalog-row__picker';
-    const select = document.createElement('select');
-    select.disabled = !settingsField; // detection: nothing to choose between yet
-    for (const opt of cat.options) {
-      const optionEl = document.createElement('option');
-      optionEl.value = opt.id;
-      optionEl.textContent = `${opt.downloaded ? '✓ ' : ''}${opt.label}`;
-      if (opt.id === selectedId) optionEl.selected = true;
-      select.appendChild(optionEl);
-    }
-    let previousValue = select.value;
-    select.addEventListener('change', async () => {
-      const chosen = optionOf(cat.category, select.value);
-      if (!chosen || chosen.downloaded) {
-        previousValue = select.value;
-        if (settingsField) currentSettings[settingsField] = select.value;
-        return;
-      }
-      const ok = window.confirm(
-        `"${chosen.label}" isn't downloaded yet (~${formatBytes(chosen.approxBytes)}). Download it now?`,
-      );
-      if (!ok) {
-        select.value = previousValue;
-        return;
-      }
-      const success = await downloadOption(chosen.id, chosen.label);
-      if (success) {
-        previousValue = select.value;
-        if (settingsField) currentSettings[settingsField] = select.value;
-        await refreshCatalog();
+    el.resourceDot.style.background = u.modelsLoaded ? '#3b82f6' : '#16a34a';
+    if (el.unloadModelsBtn) {
+      el.unloadModelsBtn.style.display = 'inline-block';
+      if (u.modelsLoaded) {
+        el.unloadModelsBtn.disabled = false;
+        el.unloadModelsBtn.textContent = window.mwtI18n.get('freeMemory');
+        el.unloadModelsBtn.title = window.mwtI18n.get('freeMemoryTitle');
+        el.unloadModelsBtn.style.opacity = '1';
+        el.unloadModelsBtn.style.cursor = 'pointer';
       } else {
-        select.value = previousValue;
+        el.unloadModelsBtn.disabled = true;
+        el.unloadModelsBtn.textContent = window.mwtI18n.get('memoryFreed');
+        el.unloadModelsBtn.title = window.mwtI18n.get('modelsIdle');
+        el.unloadModelsBtn.style.opacity = '0.65';
+        el.unloadModelsBtn.style.cursor = 'default';
       }
-    });
-    picker.appendChild(select);
-    row.appendChild(picker);
+    }
 
-    el.modelCatalog.appendChild(row);
+    // Active download progress
+    if (el.downloadBanner) {
+      if (u.download && u.download.active) {
+        el.downloadBanner.style.display = 'block';
+        el.downloadTitle.textContent = window.mwtI18n.get('downloadTitle', u.download.name);
+        const pct = Math.round(u.download.percent || 0);
+        el.downloadPercent.textContent = `${pct}%`;
+        el.downloadBarFill.style.width = `${pct}%`;
+      } else {
+        el.downloadBanner.style.display = 'none';
+      }
+    }
+  } catch {
+    el.resourceText.textContent = 'CPU / RAM: indisponível';
+    if (el.unloadModelsBtn) {
+      el.unloadModelsBtn.disabled = true;
+      el.unloadModelsBtn.style.opacity = '0.5';
+    }
+    if (el.downloadBanner) el.downloadBanner.style.display = 'none';
   }
 }
 
-let progressListenerBound = false;
-function bindProgressListenerOnce() {
-  if (progressListenerBound) return;
-  progressListenerBound = true;
-  listen('model-download-progress', (event) => {
-    const p = event.payload;
-    const pct = p.totalBytes > 0 ? Math.min(100, Math.round((p.downloadedBytes / p.totalBytes) * 100)) : 0;
-    el.downloadProgressBar.style.width = `${pct}%`;
-    if (p.error) {
-      el.downloadProgressText.textContent = `${p.file}: failed — ${p.error}`;
-    } else if (p.done) {
-      el.downloadProgressText.textContent = `${p.file} done (${p.fileIndex + 1}/${p.fileCount})`;
-    } else {
-      el.downloadProgressText.textContent =
-        `File ${p.fileIndex + 1} of ${p.fileCount}: ${p.file} — ${formatBytes(p.downloadedBytes)} / ${formatBytes(p.totalBytes)}`;
+if (el.unloadModelsBtn) {
+  el.unloadModelsBtn.addEventListener('click', async () => {
+    el.unloadModelsBtn.disabled = true;
+    el.unloadModelsBtn.textContent = window.mwtI18n.get('freeing');
+    try {
+      await invoke('unload_models');
+      await refreshResourceUsage();
+    } catch (err) {
+      console.error('Failed to unload models', err);
+    } finally {
+      el.unloadModelsBtn.disabled = false;
+      el.unloadModelsBtn.textContent = window.mwtI18n.get('freeMemory');
     }
   });
 }
 
-/** Downloads one catalog option, showing the shared progress bar. Returns
- * whether it succeeded. */
-async function downloadOption(optionId, label) {
-  bindProgressListenerOnce();
-  el.downloadProgressWrap.hidden = false;
-  el.downloadProgressBar.style.width = '0%';
-  el.downloadProgressText.textContent = `Starting download of ${label}…`;
-  try {
-    await invoke('download_model_option', { optionId });
-    el.downloadProgressWrap.hidden = true;
-    return true;
-  } catch (err) {
-    el.downloadProgressText.textContent = `Download of ${label} failed: ${err}`;
-    return false;
-  }
-}
-
-async function deleteOption(optionId) {
-  try {
-    await invoke('delete_model_option', { optionId });
-    return true;
-  } catch (err) {
-    window.alert(`Could not delete: ${err}`);
-    return false;
-  }
-}
-
-function openManage(categoryId) {
-  const cat = categoryOf(categoryId);
-  if (!cat) return;
-  el.manageTitle.textContent = `Manage: ${CATEGORY_LABELS[categoryId] ?? categoryId}`;
-  renderManageList(categoryId);
-  el.manageOverlay.hidden = false;
-}
-
-function closeManage() {
-  el.manageOverlay.hidden = true;
-}
-
-function renderManageList(categoryId) {
-  const cat = categoryOf(categoryId);
-  el.manageList.innerHTML = '';
-  for (const opt of cat.options) {
-    const item = document.createElement('div');
-    item.className = 'manage-item';
-
-    const info = document.createElement('div');
-    info.className = 'manage-item__info';
-    const label = document.createElement('div');
-    label.className = 'manage-item__label';
-    label.textContent = `${opt.downloaded ? '✓ ' : ''}${opt.label}`;
-    const size = document.createElement('div');
-    size.className = 'manage-item__size';
-    size.textContent = opt.downloaded ? 'Downloaded' : `~${formatBytes(opt.approxBytes)}`;
-    info.appendChild(label);
-    info.appendChild(size);
-    item.appendChild(info);
-
-    const action = document.createElement('button');
-    action.type = 'button';
-    action.className = 'manage-item__action';
-    if (opt.downloaded) {
-      // The currently-selected option for this category can't be deleted
-      // out from under the engine that's using it.
-      const settingsField = CATEGORY_SETTINGS_FIELD[categoryId];
-      const isSelected = settingsField && currentSettings?.[settingsField] === opt.id;
-      action.textContent = 'Delete';
-      action.disabled = !!isSelected || opt.builtin;
-      action.title = opt.builtin
-        ? 'Bundled with the app -- nothing to delete.'
-        : isSelected
-          ? 'Currently selected -- pick a different option first.'
-          : '';
-      action.addEventListener('click', async () => {
-        action.disabled = true;
-        action.textContent = 'Deleting…';
-        const ok = await deleteOption(opt.id);
-        await refreshCatalog();
-        renderManageList(categoryId);
-        if (!ok) {
-          action.disabled = false;
-          action.textContent = 'Delete';
-        }
-      });
-    } else {
-      action.textContent = 'Download';
-      action.addEventListener('click', async () => {
-        action.disabled = true;
-        action.textContent = 'Downloading…';
-        await downloadOption(opt.id, opt.label);
-        await refreshCatalog();
-        renderManageList(categoryId);
-      });
-    }
-    item.appendChild(action);
-
-    el.manageList.appendChild(item);
-  }
-}
-
-el.manageCloseBtn.addEventListener('click', closeManage);
-el.manageOverlay.addEventListener('click', (e) => {
-  if (e.target === el.manageOverlay) closeManage();
-});
-
 el.form.addEventListener('submit', async (e) => {
   e.preventDefault();
   el.feedback.classList.remove('error');
-  el.feedback.textContent = 'Saving…';
+  el.feedback.textContent = window.mwtI18n.get('saving');
   try {
     await invoke('save_settings', { settings: readSettings() });
-    el.feedback.textContent = 'Saved. New jobs will use these settings right away.';
+    el.feedback.textContent = window.mwtI18n.get('settingsSaved');
   } catch (err) {
     el.feedback.classList.add('error');
-    el.feedback.textContent = `Could not save: ${err}`;
+    el.feedback.textContent = window.mwtI18n.get('saveError', err);
   }
   setTimeout(() => {
     el.feedback.textContent = '';
@@ -450,7 +432,10 @@ el.form.addEventListener('submit', async (e) => {
   refreshUsage();
 });
 
-load().then(() => refreshCatalog());
+load();
+loadPipelineModels();
+refreshServerStatus();
+setInterval(refreshServerStatus, 3000);
 refreshUsage();
 setInterval(refreshUsage, 5000);
 refreshResourceUsage();

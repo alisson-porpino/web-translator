@@ -97,6 +97,64 @@ h1 {
   flex-shrink: 0;
 }
 
+.status--server {
+  justify-content: space-between;
+}
+
+.status__toggle {
+  width: auto;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.status__btn {
+  width: auto;
+  margin: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.status__btn:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+
+.extension-install__buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.extension-install__buttons button {
+  width: auto;
+  flex: 1;
+}
+
+.extension-install__steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.extension-install__steps code {
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
 .catalog-row {
   margin-top: 10px;
 }
@@ -166,6 +224,27 @@ h1 {
   font-size: 12px;
   border-radius: 6px;
   flex-shrink: 0;
+}
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.path-row input {
+  margin-top: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.path-row button {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .manage-overlay {
@@ -310,7 +389,13 @@ select {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 7px;
+  color-scheme: dark;
   transition: border-color 0.12s ease;
+}
+
+select option {
+  background-color: var(--surface, #1e1e24);
+  color: var(--fg, #ffffff);
 }
 
 input:focus,
@@ -366,7 +451,9 @@ button:disabled {
   cursor: default;
 }
 
-#feedback {
+#feedback,
+#pipelineModelsFeedback,
+#extensionInstallFeedback {
   margin-top: 8px;
   font-size: 12px;
   min-height: 1.2em;
@@ -374,7 +461,9 @@ button:disabled {
   color: var(--ok);
 }
 
-#feedback.error {
+#feedback.error,
+#pipelineModelsFeedback.error,
+#extensionInstallFeedback.error {
   color: var(--bad);
 }
 
