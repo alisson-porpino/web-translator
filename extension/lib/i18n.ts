@@ -60,6 +60,14 @@ export interface I18nDict {
   stoppedByUser: string;
   timedOut: string;
   translationFailed: string;
+  aiModelsHeading: string;
+  modelsSectionHint: string;
+  translationModelLabel: string;
+  quantizationLabel: string;
+  ocrModelLabel: string;
+  inpaintingModelLabel: string;
+  modelsSaved: string;
+  loadingModels: string;
 }
 
 const DICTS: Record<SupportedLang, I18nDict> = {
@@ -91,7 +99,15 @@ const DICTS: Record<SupportedLang, I18nDict> = {
     save: 'Salvar',
     saved: 'Salvo com sucesso.',
     back: '← Voltar',
-    settingsHint: 'O motor de tradução e chaves de API são configurados no aplicativo desktop.',
+    settingsHint: 'Conecte ao app local ou ao link Cloudflare do Google Colab.',
+    aiModelsHeading: 'Modelos de IA (Motor Koharu)',
+    modelsSectionHint: 'Altera os modelos ativos na GPU do servidor em tempo real.',
+    translationModelLabel: 'Modelo de Tradução (LLM)',
+    quantizationLabel: 'Quantização',
+    ocrModelLabel: 'Modelo de OCR',
+    inpaintingModelLabel: 'Modelo de Inpainting',
+    modelsSaved: 'Modelos atualizados no servidor!',
+    loadingModels: 'Carregando catálogo de modelos…',
     modelsActive: 'Modelos em RAM: Ativos',
     modelsIdle: 'Modelos: Desalocados (Em espera)',
     activeJobs: (n) => ` (${n} tarefa(s) ativa(s))`,
@@ -153,7 +169,15 @@ const DICTS: Record<SupportedLang, I18nDict> = {
     save: 'Save',
     saved: 'Saved.',
     back: '← Back',
-    settingsHint: 'Engine and API keys are configured in the desktop app itself.',
+    settingsHint: 'Connect to your local app or the Google Colab Cloudflare URL.',
+    aiModelsHeading: 'AI Models (Koharu Engine)',
+    modelsSectionHint: 'Change active GPU models on the server in real-time.',
+    translationModelLabel: 'Translation Model (LLM)',
+    quantizationLabel: 'Quantization',
+    ocrModelLabel: 'OCR Model',
+    inpaintingModelLabel: 'Inpainting Model',
+    modelsSaved: 'Models updated on server!',
+    loadingModels: 'Loading model catalog…',
     modelsActive: 'Models in RAM: Active',
     modelsIdle: 'Models: Unloaded (Idle)',
     activeJobs: (n) => ` (${n} active job(s))`,
@@ -215,7 +239,15 @@ const DICTS: Record<SupportedLang, I18nDict> = {
     save: 'Guardar',
     saved: 'Guardado.',
     back: '← Volver',
-    settingsHint: 'El motor y claves de API se configuran en la aplicación desktop.',
+    settingsHint: 'Conecta a tu app local o al enlace Cloudflare de Google Colab.',
+    aiModelsHeading: 'Modelos de IA (Motor Koharu)',
+    modelsSectionHint: 'Cambia los modelos activos en la GPU del servidor en tiempo real.',
+    translationModelLabel: 'Modelo de Traducción (LLM)',
+    quantizationLabel: 'Cuantización',
+    ocrModelLabel: 'Modelo de OCR',
+    inpaintingModelLabel: 'Modelo de Inpainting',
+    modelsSaved: '¡Modelos actualizados en el servidor!',
+    loadingModels: 'Cargando catálogo de modelos…',
     modelsActive: 'Modelos en RAM: Activos',
     modelsIdle: 'Modelos: Descargados (En espera)',
     activeJobs: (n) => ` (${n} tarea(s) activa(s))`,

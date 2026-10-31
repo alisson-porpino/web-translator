@@ -49,6 +49,24 @@ impl UsageTracker {
         Self { path, state: Mutex::new(record) }
     }
 
+    pub fn load_headless() -> Self {
+        let base = dirs::data_local_dir()
+            .or_else(dirs::cache_dir)
+            .unwrap_or_else(std::env::temp_dir);
+        let dir = base.join("manga-web-translator");
+        std::fs::create_dir_all(&dir).ok();
+        let path = dir.join("google_usage.json");
+        let mut record: UsageRecord = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let today = current_day_bucket();
+        if record.day_bucket != today {
+            record = UsageRecord { day_bucket: today, count: 0 };
+        }
+        Self { path, state: Mutex::new(record) }
+    }
+
     fn persist(&self, record: UsageRecord) {
         if let Ok(data) = serde_json::to_string(&record) {
             let _ = std::fs::write(&self.path, data);

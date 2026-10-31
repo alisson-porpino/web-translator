@@ -47,6 +47,29 @@
   opacity: 1;
 }
 
+.mwt-timing-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  font: 600 11px system-ui, -apple-system, sans-serif;
+  background: rgba(15, 23, 42, 0.85);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 5px;
+  padding: 2px 6px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  user-select: none;
+  transition: opacity 0.2s ease;
+  opacity: 0.9;
+}
+
+.mwt-wrapper:hover .mwt-timing-badge {
+  opacity: 1;
+}
+
 .mwt-progress-panel {
   position: fixed;
   right: 16px;

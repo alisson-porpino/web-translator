@@ -1,4 +1,17 @@
 fn main() {
+    // Ensure resource zip files exist so tauri-build doesn't fail when building
+    // from a fresh clone without pre-built extension packages (e.g. headless/Colab/CI).
+    let resources_dir = std::path::Path::new("resources");
+    if !resources_dir.exists() {
+        let _ = std::fs::create_dir_all(resources_dir);
+    }
+    for file in &["extension-chrome.zip", "extension-firefox.zip"] {
+        let path = resources_dir.join(file);
+        if !path.exists() {
+            let _ = std::fs::write(&path, b"PK\x05\x06\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+        }
+    }
+
     // The downloaded ONNX Runtime binary bundles CoreML support on macOS
     // (not something we opted into -- it's just what `ort`'s download
     // strategy ships there), and its CoreML object files reference

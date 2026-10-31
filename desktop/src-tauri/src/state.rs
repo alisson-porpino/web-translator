@@ -31,7 +31,7 @@ pub type JobsMap = Arc<Mutex<HashMap<String, JobStatus>>>;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub app_handle: AppHandle,
+    pub app_handle: Option<AppHandle>,
     pub jobs: JobsMap,
     pub cache_dir: PathBuf,
     pub google_usage: Arc<UsageTracker>,
@@ -60,6 +60,15 @@ pub struct AppState {
     /// job id.
     pub running_stops: Arc<Mutex<HashMap<String, koharu_pipeline::StopToken>>>,
     pub server: Arc<Mutex<Option<ServerHandle>>>,
+}
+
+impl AppState {
+    pub fn get_settings(&self) -> crate::settings::Settings {
+        match self.app_handle {
+            Some(ref h) => crate::settings::load(h),
+            None => crate::settings::load_headless(),
+        }
+    }
 }
 
 pub struct ServerHandle {

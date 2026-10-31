@@ -153,3 +153,35 @@ pub fn cache_dir(app: &tauri::AppHandle) -> PathBuf {
     std::fs::create_dir_all(&dir).ok();
     dir
 }
+
+pub fn headless_settings_path() -> PathBuf {
+    let base = dirs::config_dir()
+        .or_else(dirs::data_local_dir)
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("manga-web-translator");
+    std::fs::create_dir_all(&dir).ok();
+    dir.join("settings.json")
+}
+
+pub fn load_headless() -> Settings {
+    let path = headless_settings_path();
+    let mut settings: Settings = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+
+    if settings.font_paths.is_empty() && !settings.font_path.trim().is_empty() {
+        settings.font_paths.push(settings.font_path.clone());
+    }
+
+    settings
+}
+
+pub fn cache_dir_headless() -> PathBuf {
+    let base = dirs::cache_dir()
+        .or_else(dirs::data_local_dir)
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("manga-web-translator").join("cache");
+    std::fs::create_dir_all(&dir).ok();
+    dir
+}

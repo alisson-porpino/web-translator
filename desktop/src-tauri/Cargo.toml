@@ -42,16 +42,17 @@ sysinfo = "0.39"
 async-trait = "0.1"
 anyhow = "1"
 tracing = "0.1"
-koharu-pipeline = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
-koharu-scene = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
-koharu-ml = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
-koharu-config = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
-koharu-translator = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
-koharu-renderer = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
-koharu-rasterizer = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe", features = [
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi", "env-filter"] }
+koharu-pipeline = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
+koharu-scene = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
+koharu-ml = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
+koharu-config = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
+koharu-translator = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
+koharu-renderer = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
+koharu-rasterizer = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19", features = [
     "native",
 ] }
-koharu-runtime = { git = "https://github.com/alisson-porpino/koharu", rev = "841e5bfe967295855a7180185ad7e20f175679fe" }
+koharu-runtime = { git = "https://github.com/alisson-porpino/koharu", rev = "abe1af98a8811c67ec783fb066f95f6e61f01f19" }
 tauri-plugin-dialog = "2"
 # "Reveal in Finder/Explorer" for the bundled pre-built extension zip --
 # see main.rs's install_extension.

@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::engines::{self, EngineError};
-use crate::settings::{self, Settings};
+use crate::settings::Settings;
 use crate::state::{AppState, JobStatus};
 
 const USER_AGENT: &str = "Mozilla/5.0 (compatible; manga-web-translator/0.1; self-hosted personal tool)";
@@ -211,7 +211,7 @@ async fn process_job(state: AppState, job_id: String, req: CreateJobRequest) {
         hasher.update(&image_bytes);
         format!("{:x}", hasher.finalize())
     };
-    let app_settings = settings::load(&state.app_handle);
+    let app_settings = state.get_settings();
     let cache_filename = format!(
         "{}_{}_{}_{}_{:.2}.png",
         sha256_hex,

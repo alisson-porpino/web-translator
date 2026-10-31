@@ -75,7 +75,7 @@ async fn get_job(State(state): State<AppState>, Path(job_id): Path<String>) -> i
                     status.progress_percent = Some(dl.percent);
                     let mb_done = dl.completed_bytes / (1024 * 1024);
                     let mb_total = dl.total_bytes / (1024 * 1024);
-                    let is_pt = crate::settings::load(&state.app_handle).ui_language.starts_with("pt");
+                    let is_pt = state.get_settings().ui_language.starts_with("pt");
                     status.progress_message = Some(if is_pt {
                         format!(
                             "Baixando modelo {}: {:.1}% ({}/{} MB)... Isso ocorre apenas no primeiro uso.",
@@ -110,7 +110,7 @@ async fn healthz() -> impl IntoResponse {
 /// Lets the browser extension's popup and settings window fetch the live
 /// CPU/RAM/VRAM reading and model status.
 async fn get_resource_usage(State(state): State<AppState>) -> impl IntoResponse {
-    let settings = crate::settings::load(&state.app_handle);
+    let settings = state.get_settings();
     let models_loaded = crate::engines::koharu_engine::is_loaded().await;
     let active_jobs = state.active_jobs.load(std::sync::atomic::Ordering::Relaxed);
     Json(crate::resource_usage::snapshot(&settings, models_loaded, active_jobs))
@@ -123,13 +123,64 @@ async fn unload_pipeline(State(state): State<AppState>) -> impl IntoResponse {
     Json(serde_json::json!({ "ok": true, "unloaded": unloaded })).into_response()
 }
 
+#[derive(Deserialize)]
+struct SetPipelineModelsBody {
+    ocr: String,
+    inpainting: String,
+}
+
+async fn get_pipeline_models() -> impl IntoResponse {
+    match crate::engines::koharu_models::get() {
+        Ok(models) => (StatusCode::OK, Json(serde_json::to_value(models).unwrap())).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+async fn set_pipeline_models(Json(body): Json<SetPipelineModelsBody>) -> impl IntoResponse {
+    match crate::engines::koharu_models::set(&body.ocr, &body.inpainting) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
+async fn list_translation_models() -> impl IntoResponse {
+    match crate::engines::koharu_models::list_translation_models().await {
+        Ok(models) => (StatusCode::OK, Json(serde_json::to_value(models).unwrap())).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+async fn get_translation_selection() -> impl IntoResponse {
+    match crate::engines::koharu_models::get_translation_selection() {
+        Ok(selection) => (StatusCode::OK, Json(serde_json::to_value(selection).unwrap())).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct SetTranslationModelBody {
+    model: String,
+    quantization: Option<String>,
+}
+
+async fn set_translation_model(Json(body): Json<SetTranslationModelBody>) -> impl IntoResponse {
+    match crate::engines::koharu_models::set_translation_model(&body.model, body.quantization.as_deref()) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
 /// Binds the port up front so a conflict (another app already using it)
 /// surfaces to the caller immediately, instead of only after `serve`
 /// below has been running in the background for a while -- `start_server`
 /// (main.rs) awaits this before telling the UI the server actually
 /// started.
 pub async fn bind(port: u16) -> std::io::Result<tokio::net::TcpListener> {
-    tokio::net::TcpListener::bind(format!("127.0.0.1:{port}")).await
+    bind_addr("127.0.0.1", port).await
+}
+
+pub async fn bind_addr(host: &str, port: u16) -> std::io::Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind(format!("{host}:{port}")).await
 }
 
 /// Runs until `shutdown` fires (see `stop_server` in main.rs) or the
@@ -142,6 +193,9 @@ pub async fn serve(state: AppState, listener: tokio::net::TcpListener, shutdown:
         .route("/api/resources", get(get_resource_usage))
         .route("/api/pipeline/unload", post(unload_pipeline))
         .route("/api/resources/unload", post(unload_pipeline))
+        .route("/api/pipeline/models", get(get_pipeline_models).post(set_pipeline_models))
+        .route("/api/translation/models", get(list_translation_models))
+        .route("/api/translation/selection", get(get_translation_selection).post(set_translation_model))
         .nest_service("/cache", ServeDir::new(state.cache_dir.clone()))
         .layer(CorsLayer::permissive())
         .with_state(state);

@@ -1,10 +1,17 @@
 import browser from 'webextension-polyfill';
 import { getSettings, onSettingsChanged } from '../../lib/settings';
 import { getI18n } from '../../lib/i18n';
-import type { TranslateImageRequest, TranslateImageResponse } from '../../lib/messages';
+import type {
+  TranslateImageRequest,
+  TranslateImageResponse,
+  StartTranslateJobRequest,
+  StartTranslateJobResponse,
+  PollTranslateJobRequest,
+  PollTranslateJobResponse,
+} from '../../lib/messages';
 
 const LOG = '[MWT:bg]';
-const POLL_INTERVAL_MS = 1200;
+const POLL_INTERVAL_MS = 800;
 // The desktop app serializes local-engine jobs (one pipeline -- vision LLM
 // translation + LaMa inpainting -- at a time; see state.rs's
 // local_engine_slots), and a single image can take ~3 minutes end to end.
@@ -40,16 +47,27 @@ async function createJob(
   serverUrl: string,
   body: Record<string, unknown>,
 ): Promise<CreateJobResponse> {
-  const res = await fetch(`${serverUrl}/api/jobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`createJob failed (${res.status}): ${text}`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${serverUrl}/api/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`createJob failed (${res.status}): ${text}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+      }
+    }
   }
-  return res.json();
+  throw lastErr;
 }
 
 async function pollJob(
@@ -67,7 +85,14 @@ async function pollJob(
     if (shouldStop()) {
       return { status: 'failed', errorCode: 'CANCELLED', errorMessage: dict.stoppedByUser };
     }
-    const res = await fetch(`${serverUrl}/api/jobs/${jobId}`);
+    let res: Response;
+    try {
+      res = await fetch(`${serverUrl}/api/jobs/${jobId}`);
+    } catch {
+      // Falha temporária de rede/túnel: aguarda o próximo ciclo sem derrubar o job
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      continue;
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`pollJob failed (${res.status}): ${text}`);
@@ -127,8 +152,18 @@ async function stopTabTranslations(tabId: number): Promise<void> {
  * network request to 127.0.0.1 itself; there's nothing left to deny.
  */
 async function toDataUrl(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetching translated image failed (${res.status})`);
+  let res: Response | null = null;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(url);
+      if (res.ok) break;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+  if (!res || !res.ok) throw new Error(`fetching translated image failed (${res?.status ?? lastErr})`);
   const contentType = res.headers.get('content-type') || 'image/png';
   // Not FileReader.readAsDataURL: this runs in the background context, which
   // for the Chrome MV3 build is a service worker with no DOM -- no
@@ -169,7 +204,28 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
       return { ok: false, errorCode: 'CANCELLED', errorMessage: result.errorMessage, cancelled: true };
     }
     if (result.status === 'succeeded' && result.translatedImageUrl) {
-      const dataUrl = await toDataUrl(result.translatedImageUrl);
+      if (result.translatedImageUrl.startsWith('data:')) {
+        return { ok: true, translatedImageUrl: result.translatedImageUrl, engineUsed: result.engineUsed };
+      }
+      let fullUrl = result.translatedImageUrl;
+      if (fullUrl.startsWith('/')) {
+        fullUrl = `${settings.serverUrl.replace(/\/$/, '')}${fullUrl}`;
+      } else {
+        try {
+          const parsed = new URL(fullUrl);
+          const serverBase = new URL(settings.serverUrl);
+          if (
+            (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') &&
+            serverBase.hostname !== '127.0.0.1' &&
+            serverBase.hostname !== 'localhost'
+          ) {
+            fullUrl = `${settings.serverUrl.replace(/\/$/, '')}${parsed.pathname}`;
+          }
+        } catch {
+          // fallback to original
+        }
+      }
+      const dataUrl = await toDataUrl(fullUrl);
       return { ok: true, translatedImageUrl: dataUrl, engineUsed: result.engineUsed };
     }
     return {
@@ -192,9 +248,151 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
   }
 }
 
+async function handleStartTranslateJob(
+  req: StartTranslateJobRequest,
+  tabId: number | undefined,
+): Promise<StartTranslateJobResponse> {
+  const settings = await getSettings();
+  try {
+    const { jobId } = await createJob(settings.serverUrl, {
+      ...(req.imageBytesBase64
+        ? { imageBase64: req.imageBytesBase64, mimeType: req.mimeType }
+        : { imageUrl: req.imageUrl }),
+      pageUrl: req.pageUrl,
+      targetLang: settings.targetLang,
+    });
+    if (tabId !== undefined) jobTabs.set(jobId, tabId);
+    return { ok: true, jobId };
+  } catch (err) {
+    console.error(LOG, 'startTranslateJob failed', err);
+    return {
+      ok: false,
+      errorCode: 'SERVER_CONNECTION_ERROR',
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function handlePollTranslateJob(
+  req: PollTranslateJobRequest,
+  tabId: number | undefined,
+): Promise<PollTranslateJobResponse> {
+  const settings = await getSettings();
+  const dict = getI18n(settings.uiLang);
+  const { jobId } = req;
+
+  if (stoppedJobs.has(jobId)) {
+    jobTabs.delete(jobId);
+    stoppedJobs.delete(jobId);
+    return {
+      ok: false,
+      status: 'failed',
+      errorCode: 'CANCELLED',
+      errorMessage: 'Cancelled by user',
+      cancelled: true,
+    };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${settings.serverUrl}/api/jobs/${jobId}`);
+  } catch (err) {
+    // Transient network/tunnel hiccup, report running so content script polls again
+    return {
+      ok: true,
+      status: 'running',
+      progressMessage: 'Connecting to server...',
+    };
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return {
+      ok: false,
+      status: 'failed',
+      errorCode: 'JOB_POLL_ERROR',
+      errorMessage: `HTTP ${res.status}: ${text}`,
+    };
+  }
+
+  const data: JobStatusResponse = await res.json();
+
+  if (data.status === 'succeeded' && data.translatedImageUrl) {
+    jobTabs.delete(jobId);
+    stoppedJobs.delete(jobId);
+    if (data.translatedImageUrl.startsWith('data:')) {
+      return {
+        ok: true,
+        status: 'succeeded',
+        translatedImageUrl: data.translatedImageUrl,
+        engineUsed: data.engineUsed,
+      };
+    }
+    let fullUrl = data.translatedImageUrl;
+    if (fullUrl.startsWith('/')) {
+      fullUrl = `${settings.serverUrl.replace(/\/$/, '')}${fullUrl}`;
+    } else {
+      try {
+        const parsed = new URL(fullUrl);
+        const serverBase = new URL(settings.serverUrl);
+        if (
+          (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') &&
+          serverBase.hostname !== '127.0.0.1' &&
+          serverBase.hostname !== 'localhost'
+        ) {
+          fullUrl = `${settings.serverUrl.replace(/\/$/, '')}${parsed.pathname}`;
+        }
+      } catch {
+        // fallback
+      }
+    }
+    try {
+      const dataUrl = await toDataUrl(fullUrl);
+      return {
+        ok: true,
+        status: 'succeeded',
+        translatedImageUrl: dataUrl,
+        engineUsed: data.engineUsed,
+      };
+    } catch (dataErr) {
+      return {
+        ok: false,
+        status: 'failed',
+        errorCode: 'IMAGE_DOWNLOAD_FAILED',
+        errorMessage: dataErr instanceof Error ? dataErr.message : String(dataErr),
+      };
+    }
+  }
+
+  if (data.status === 'failed') {
+    jobTabs.delete(jobId);
+    stoppedJobs.delete(jobId);
+    return {
+      ok: false,
+      status: 'failed',
+      errorCode: data.errorCode ?? 'TRANSLATION_FAILED',
+      errorMessage: data.errorMessage ?? dict.translationFailed,
+    };
+  }
+
+  return {
+    ok: true,
+    status: (data.status as any) || 'running',
+    stage: data.stage,
+    progressMessage: data.progressMessage,
+    progressPercent: data.progressPercent,
+  };
+}
+
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message: unknown, sender: browser.Runtime.MessageSender) => {
     const msg = message as { type?: string };
+    if (msg.type === 'START_TRANSLATE_JOB') {
+      return handleStartTranslateJob(message as StartTranslateJobRequest, sender.tab?.id);
+    }
+    if (msg.type === 'POLL_TRANSLATE_JOB') {
+      return handlePollTranslateJob(message as PollTranslateJobRequest, sender.tab?.id);
+    }
     if (msg.type === 'TRANSLATE_IMAGE') {
       return handleTranslateImage(message as TranslateImageRequest, sender.tab?.id);
     }

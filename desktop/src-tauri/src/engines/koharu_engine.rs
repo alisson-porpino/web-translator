@@ -89,13 +89,16 @@ impl Committer for JobCommitter {
 pub type ProgressCallback = Arc<dyn Fn(String, Option<f32>) + Send + Sync>;
 
 pub async fn translate(
-    app: AppHandle,
+    app: Option<AppHandle>,
     image_bytes: Vec<u8>,
     target_lang: &str,
     stop: StopToken,
     on_progress: Option<ProgressCallback>,
 ) -> Result<EngineResult, EngineError> {
-    let app_settings = crate::settings::load(&app);
+    let app_settings = match app {
+        Some(ref h) => crate::settings::load(h),
+        None => crate::settings::load_headless(),
+    };
     let is_pt = app_settings.ui_language.starts_with("pt");
 
     if let Some(ref cb) = on_progress {

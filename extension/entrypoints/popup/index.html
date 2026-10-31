@@ -10,7 +10,7 @@
          that panel. */
       body {
         font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        width: 300px;
+        width: 320px;
         margin: 0;
         padding: 12px;
         background: #141416;
@@ -259,6 +259,36 @@
         <option value="pt">Português</option>
         <option value="en">English</option>
         <option value="es">Español</option>
+      </select>
+
+      <hr />
+      <h2 id="aiModelsHeading">Modelos de IA (Motor Koharu)</h2>
+      <p id="modelsSectionHint" class="hint">Altera os modelos ativos na GPU do servidor em tempo real.</p>
+
+      <label for="translationModelSelect" id="translationModelLabel">Modelo de Tradução (LLM)</label>
+      <select id="translationModelSelect">
+        <option value="">Carregando modelos do servidor…</option>
+      </select>
+
+      <label for="quantizationSelect" id="quantizationLabel">Quantização</label>
+      <select id="quantizationSelect">
+        <option value="">—</option>
+      </select>
+
+      <label for="ocrModelSelect" id="ocrModelLabel">Modelo de OCR</label>
+      <select id="ocrModelSelect">
+        <option value="manga-ocr">Manga OCR (Japonês)</option>
+        <option value="paddleocr-vl-1.6">PaddleOCR-VL 1.6</option>
+        <option value="baberu-ocr">Baberu OCR</option>
+        <option value="hayai-ocr">Hayai OCR</option>
+      </select>
+
+      <label for="inpaintingModelSelect" id="inpaintingModelLabel">Modelo de Inpainting</label>
+      <select id="inpaintingModelSelect">
+        <option value="lama">LaMa (Alta fidelidade)</option>
+        <option value="aot-inpainting">AOT Inpainting</option>
+        <option value="flux2-klein">Flux.2 Klein (Generativo)</option>
+        <option value="rorem-mixed">RoRem Mixed (Generativo)</option>
       </select>
 
       <button type="button" id="save" class="primary">Salvar</button>

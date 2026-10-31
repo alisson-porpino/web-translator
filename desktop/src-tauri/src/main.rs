@@ -194,7 +194,45 @@ fn set_translation_model(model: String, quantization: Option<String>) -> Result<
     engines::koharu_models::set_translation_model(&model, quantization.as_deref())
 }
 
-fn main() {
+async fn run_headless_server(port: u16) {
+    let _ = tracing_subscriber::fmt::try_init();
+    tracing::info!("Starting manga-web-translator headless server on port {port}...");
+
+    let cache_dir = settings::cache_dir_headless();
+    let initial_settings = settings::load_headless();
+    resource_limits::set_limits(initial_settings.max_cpu_threads, initial_settings.max_memory_mb);
+    download_tracker::start_download_listener();
+
+    let state = AppState {
+        app_handle: None,
+        jobs: Arc::new(Mutex::new(HashMap::new())),
+        cache_dir,
+        google_usage: Arc::new(UsageTracker::load_headless()),
+        active_jobs: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        idle_timer_cancel: Arc::new(Mutex::new(None)),
+        local_engine_slots: Arc::new(tokio::sync::Semaphore::new(1)),
+        cancelled_jobs: Arc::new(Mutex::new(std::collections::HashSet::new())),
+        running_stops: Arc::new(Mutex::new(HashMap::new())),
+        server: Arc::new(Mutex::new(None)),
+    };
+
+    let listener = match http_server::bind_addr("0.0.0.0", port).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Failed to bind to port {port}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let (_shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    println!("===============================================================");
+    println!("🚀 Native Koharu Server listening on http://0.0.0.0:{port}");
+    println!("===============================================================");
+
+    http_server::serve(state, listener, shutdown_rx).await;
+}
+
+fn run_tauri_app() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -223,7 +261,7 @@ fn main() {
             download_tracker::start_download_listener();
 
             let state = AppState {
-                app_handle: app_handle.clone(),
+                app_handle: Some(app_handle.clone()),
                 jobs: Arc::new(Mutex::new(HashMap::new())),
                 cache_dir,
                 google_usage: Arc::new(UsageTracker::load(&app_handle)),
@@ -266,4 +304,82 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let is_headless = args.iter().any(|a| a == "--server" || a == "--headless" || a == "-s")
+        || std::env::var("SERVER_MODE").map(|v| v == "1" || v == "true").unwrap_or(false);
+
+    if is_headless {
+        let port: u16 = args
+            .iter()
+            .position(|a| a == "--port" || a == "-p")
+            .and_then(|idx| args.get(idx + 1))
+            .and_then(|p| p.parse().ok())
+            .or_else(|| std::env::var("PORT").ok().and_then(|p| p.parse().ok()))
+            .unwrap_or_else(|| settings::load_headless().port);
+
+        let ocr_arg = args
+            .iter()
+            .position(|a| a == "--ocr")
+            .and_then(|idx| args.get(idx + 1))
+            .cloned()
+            .or_else(|| std::env::var("KOHARU_OCR").ok());
+
+        let inpainting_arg = args
+            .iter()
+            .position(|a| a == "--inpainting")
+            .and_then(|idx| args.get(idx + 1))
+            .cloned()
+            .or_else(|| std::env::var("KOHARU_INPAINTING").ok());
+
+        let model_arg = args
+            .iter()
+            .position(|a| a == "--model" || a == "--translation-model")
+            .and_then(|idx| args.get(idx + 1))
+            .cloned()
+            .or_else(|| std::env::var("KOHARU_TRANSLATION_MODEL").ok());
+
+        let quant_arg = args
+            .iter()
+            .position(|a| a == "--quantization" || a == "--quant")
+            .and_then(|idx| args.get(idx + 1))
+            .cloned()
+            .or_else(|| std::env::var("KOHARU_QUANTIZATION").ok());
+
+        if ocr_arg.is_some() || inpainting_arg.is_some() {
+            let current = engines::koharu_models::get().unwrap_or(engines::koharu_models::PipelineModels {
+                ocr: "paddleocr-vl-1.6".into(),
+                inpainting: "aot-inpainting".into(),
+            });
+            let target_ocr = ocr_arg.as_deref().unwrap_or(&current.ocr);
+            let target_inpainting = inpainting_arg.as_deref().unwrap_or(&current.inpainting);
+            if let Err(e) = engines::koharu_models::set(target_ocr, target_inpainting) {
+                eprintln!("Warning: failed to set pipeline models ({target_ocr}, {target_inpainting}): {e}");
+            } else {
+                println!("⚙️ Pipeline models configured: OCR='{target_ocr}', Inpainting='{target_inpainting}'");
+            }
+        }
+
+        if let Some(ref model) = model_arg {
+            if let Err(e) = engines::koharu_models::set_translation_model(model, quant_arg.as_deref()) {
+                eprintln!("Warning: failed to set translation model '{model}': {e}");
+            } else {
+                println!(
+                    "⚙️ Translation model configured: Model='{model}', Quantization='{:?}'",
+                    quant_arg.as_deref()
+                );
+            }
+        }
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to initialize Tokio runtime for headless server");
+
+        runtime.block_on(run_headless_server(port));
+    } else {
+        run_tauri_app();
+    }
 }

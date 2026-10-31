@@ -92,7 +92,26 @@ fn query_dxgi_vram() -> Option<(String, u64, u64)> {
 
 #[cfg(not(windows))]
 fn query_dxgi_vram() -> Option<(String, u64, u64)> {
-    None
+    let output = std::process::Command::new("nvidia-smi")
+        .args(&["--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let first_line = text.lines().next()?;
+    let parts: Vec<&str> = first_line.split(',').map(|s| s.trim()).collect();
+    if parts.len() >= 3 {
+        let name = parts[0].to_string();
+        let used = parts[1].parse::<u64>().ok()?;
+        let total = parts[2].parse::<u64>().ok()?;
+        Some((name, used, total))
+    } else {
+        None
+    }
 }
 
 pub fn snapshot(settings: &crate::settings::Settings, models_loaded: bool, active_jobs: usize) -> ResourceUsage {

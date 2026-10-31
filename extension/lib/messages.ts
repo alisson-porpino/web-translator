@@ -41,7 +41,44 @@ export interface JobProgressNotification {
   progressPercent?: number;
 }
 
+export interface StartTranslateJobRequest {
+  type: 'START_TRANSLATE_JOB';
+  imageUrl: string;
+  pageUrl: string;
+  imageBytesBase64?: string;
+  mimeType?: string;
+}
+
+export interface StartTranslateJobResponse {
+  ok: boolean;
+  jobId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface PollTranslateJobRequest {
+  type: 'POLL_TRANSLATE_JOB';
+  jobId: string;
+  imageUrl: string;
+}
+
+export interface PollTranslateJobResponse {
+  ok: boolean;
+  status: 'queued' | 'running' | 'processing' | 'succeeded' | 'failed';
+  stage?: string;
+  progressMessage?: string;
+  progressPercent?: number;
+  translatedImageUrl?: string;
+  engineUsed?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  cancelled?: boolean;
+}
+
 export type ExtensionMessage =
   | TranslateImageRequest
+  | StartTranslateJobRequest
+  | PollTranslateJobRequest
   | StopTranslationsRequest
   | JobProgressNotification;
+

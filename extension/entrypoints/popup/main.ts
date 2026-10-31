@@ -29,6 +29,26 @@ const uiLangEl = document.getElementById('uiLang') as HTMLSelectElement;
 const saveBtn = document.getElementById('save') as HTMLButtonElement;
 const statusEl = document.getElementById('status') as HTMLDivElement;
 
+const translationModelSelect = document.getElementById('translationModelSelect') as HTMLSelectElement | null;
+const quantizationSelect = document.getElementById('quantizationSelect') as HTMLSelectElement | null;
+const ocrModelSelect = document.getElementById('ocrModelSelect') as HTMLSelectElement | null;
+const inpaintingModelSelect = document.getElementById('inpaintingModelSelect') as HTMLSelectElement | null;
+
+interface QuantizationDef {
+  id: string;
+  name: string;
+  downloaded?: boolean;
+}
+
+interface TranslationModelDef {
+  model: string;
+  name: string;
+  quantizations?: QuantizationDef[];
+}
+
+let serverTranslationModels: TranslationModelDef[] = [];
+let hasLoadedModels = false;
+
 let activeTab: browser.Tabs.Tab | undefined;
 let activeOrigin: string | null = null;
 let settingsCache: Settings;
@@ -99,6 +119,20 @@ function applyI18n(lang: SupportedLang) {
   if (targetLbl) targetLbl.textContent = dict.targetLangLabel;
   const uiLbl = document.getElementById('uiLangLabel');
   if (uiLbl) uiLbl.textContent = dict.uiLangLabel;
+
+  const aiHeading = document.getElementById('aiModelsHeading');
+  if (aiHeading) aiHeading.textContent = dict.aiModelsHeading;
+  const modelsHint = document.getElementById('modelsSectionHint');
+  if (modelsHint) modelsHint.textContent = dict.modelsSectionHint;
+  const transLbl = document.getElementById('translationModelLabel');
+  if (transLbl) transLbl.textContent = dict.translationModelLabel;
+  const quantLbl = document.getElementById('quantizationLabel');
+  if (quantLbl) quantLbl.textContent = dict.quantizationLabel;
+  const ocrLbl = document.getElementById('ocrModelLabel');
+  if (ocrLbl) ocrLbl.textContent = dict.ocrModelLabel;
+  const inpaintLbl = document.getElementById('inpaintingModelLabel');
+  if (inpaintLbl) inpaintLbl.textContent = dict.inpaintingModelLabel;
+
   saveBtn.textContent = dict.save;
   backToMainBtn.textContent = dict.back;
 }
@@ -143,7 +177,93 @@ uiLangEl?.addEventListener('change', () => {
   applyI18n(lang);
 });
 
-openSettingsBtn.addEventListener('click', () => showView('settings'));
+function renderQuantizationOptions(modelId: string, preselect?: string | null) {
+  if (!quantizationSelect) return;
+  const model = serverTranslationModels.find((m) => m.model === modelId);
+  quantizationSelect.innerHTML = '';
+  const quants = model?.quantizations ?? [];
+  if (quants.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '—';
+    quantizationSelect.appendChild(opt);
+    return;
+  }
+  for (const q of quants) {
+    const opt = document.createElement('option');
+    opt.value = q.id;
+    opt.textContent = q.downloaded ? q.name : `${q.name} (Download)`;
+    quantizationSelect.appendChild(opt);
+  }
+  if (preselect && quants.some((q) => q.id === preselect)) {
+    quantizationSelect.value = preselect;
+  }
+}
+
+translationModelSelect?.addEventListener('change', () => {
+  if (translationModelSelect) {
+    renderQuantizationOptions(translationModelSelect.value);
+  }
+});
+
+async function loadServerModels() {
+  const base = (settingsCache?.serverUrl.trim() || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  try {
+    const [pipelineRes, transModelsRes, transSelectionRes] = await Promise.all([
+      fetch(`${base}/api/pipeline/models`).catch(() => null),
+      fetch(`${base}/api/translation/models`).catch(() => null),
+      fetch(`${base}/api/translation/selection`).catch(() => null),
+    ]);
+
+    if (pipelineRes && pipelineRes.ok) {
+      const pipelineData = (await pipelineRes.json()) as { ocr?: string; inpainting?: string };
+      if (ocrModelSelect && pipelineData.ocr) {
+        ocrModelSelect.value = pipelineData.ocr;
+      }
+      if (inpaintingModelSelect && pipelineData.inpainting) {
+        inpaintingModelSelect.value = pipelineData.inpainting;
+      }
+    }
+
+    if (transModelsRes && transModelsRes.ok && translationModelSelect) {
+      const models = (await transModelsRes.json()) as TranslationModelDef[];
+      if (Array.isArray(models) && models.length > 0) {
+        serverTranslationModels = models;
+        translationModelSelect.innerHTML = '';
+        for (const m of models) {
+          const opt = document.createElement('option');
+          opt.value = m.model;
+          opt.textContent = m.name;
+          translationModelSelect.appendChild(opt);
+        }
+
+        let activeModel = models[0]?.model || '';
+        let activeQuant: string | null = null;
+
+        if (transSelectionRes && transSelectionRes.ok) {
+          const sel = (await transSelectionRes.json()) as { model?: string; quantization?: string };
+          if (sel.model && models.some((m) => m.model === sel.model)) {
+            activeModel = sel.model;
+          }
+          activeQuant = sel.quantization || null;
+        }
+
+        if (activeModel) {
+          translationModelSelect.value = activeModel;
+          renderQuantizationOptions(activeModel, activeQuant);
+        }
+        hasLoadedModels = true;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not load server models catalog:', err);
+  }
+}
+
+openSettingsBtn.addEventListener('click', () => {
+  showView('settings');
+  void loadServerModels();
+});
 backToMainBtn.addEventListener('click', () => showView('main'));
 
 siteEnabledEl.addEventListener('change', async () => {
@@ -235,6 +355,9 @@ async function refreshResourceUsage() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const u = (await res.json()) as ResourceUsage;
     setConnected(true);
+    if (!hasLoadedModels) {
+      void loadServerModels();
+    }
     const cpuCap = u.maxCpuThreads > 0 ? ` (cap ${u.maxCpuThreads}t)` : '';
     const procMem = u.processMemoryMb != null ? `${u.processMemoryMb} MB` : `${u.usedMemoryMb} MB`;
     const sysUsed = u.systemUsedMemoryMb ?? u.usedMemoryMb;
@@ -317,8 +440,46 @@ saveBtn.addEventListener('click', async () => {
   await saveSettings(next);
   settingsCache = next;
   applyI18n(chosenUiLang);
-  statusEl.textContent = t().saved;
-  setTimeout(() => (statusEl.textContent = ''), 1500);
+
+  // Send model updates to server
+  const base = settingsCache.serverUrl.replace(/\/+$/, '');
+  let modelSaveNotice = '';
+  try {
+    const promises: Promise<Response | null>[] = [];
+    if (ocrModelSelect && inpaintingModelSelect && ocrModelSelect.value && inpaintingModelSelect.value) {
+      promises.push(
+        fetch(`${base}/api/pipeline/models`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ocr: ocrModelSelect.value,
+            inpainting: inpaintingModelSelect.value,
+          }),
+        }).catch(() => null)
+      );
+    }
+    if (translationModelSelect && translationModelSelect.value) {
+      promises.push(
+        fetch(`${base}/api/translation/selection`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: translationModelSelect.value,
+            quantization: quantizationSelect?.value || null,
+          }),
+        }).catch(() => null)
+      );
+    }
+    const results = await Promise.all(promises);
+    if (results.some((r) => r && r.ok)) {
+      modelSaveNotice = ` (${t().modelsSaved})`;
+    }
+  } catch (err) {
+    console.warn('Failed to update server models:', err);
+  }
+
+  statusEl.textContent = `${t().saved}${modelSaveNotice}`;
+  setTimeout(() => (statusEl.textContent = ''), 2500);
   refreshResourceUsage();
 });
 
