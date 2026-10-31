@@ -10,6 +10,9 @@ desktop/src-tauri/gen/
 # these (see .github/workflows/release.yml); not committed source.
 desktop/src-tauri/resources/*.zip
 
-# OS / editor
+# OS / editor / Python / Agents
 .DS_Store
 *.log
+__pycache__/
+*.pyc
+.agents/

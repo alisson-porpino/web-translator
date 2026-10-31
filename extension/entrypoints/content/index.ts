@@ -45,6 +45,14 @@ function isCandidateImage(img: HTMLImageElement): boolean {
 }
 
 const LOG = '[MWT]';
+
+function formatTimestamp(d = new Date()): string {
+  const h = String(d.getHours()).padStart(2, '0');
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const s = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${h}:${m}:${s}.${ms}`;
+}
 // Element-identity dedup: fast, but useless against SPAs (MangaDex included)
 // that unmount/remount <img> nodes for the same panel on re-render -- a new
 // DOM node looks "new" to a WeakSet even though it's the same picture. Real
@@ -244,6 +252,7 @@ interface ReviewRow {
   rowEl: HTMLDivElement;
   checkboxEl: HTMLInputElement;
   statusEl: HTMLSpanElement;
+  totalSeconds?: string;
 }
 let reviewRows: ReviewRow[] = [];
 // Rows actively translating/queued after confirm -- pumpTranslationQueue
@@ -340,7 +349,8 @@ function updateRowStatusUI(row: ReviewRow): void {
   if (row.state === 'review') return;
   row.checkboxEl.style.visibility = 'hidden';
   row.statusEl.hidden = false;
-  row.statusEl.textContent = getRowStatusLabel(row.state);
+  const baseLabel = getRowStatusLabel(row.state);
+  row.statusEl.textContent = row.totalSeconds && row.state === 'done' ? `${baseLabel} (${row.totalSeconds}s)` : baseLabel;
   row.statusEl.className = `mwt-review-row__status mwt-review-row__status--${row.state}`;
 }
 
@@ -677,9 +687,13 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
     processedKeys.add(imageUrl);
   }
 
+  const startTime = performance.now();
+  const startDate = new Date();
+  const startStr = formatTimestamp(startDate);
+
   const wrapper = wrapImage(img);
   wrapper.classList.add('mwt-border--pending');
-  console.log(LOG, 'translating candidate', { imageUrl, w: img.naturalWidth, h: img.naturalHeight });
+  console.log(`${LOG} [${startStr}] 🚀 Início tradução candidato: ${imageUrl}`, { w: img.naturalWidth, h: img.naturalHeight });
 
   let imageBytesBase64: string | undefined;
   let mimeType: string | undefined;
@@ -716,10 +730,12 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
         imageBytesBase64: bytesBase64,
         mimeType: bytesMimeType,
       })) as TranslateImageResponse;
-      console.log(LOG, 'response for', imageUrl, result);
+      const respDuration = ((performance.now() - startTime) / 1000).toFixed(2);
+      const respTimeStr = formatTimestamp(new Date());
+      console.log(`${LOG} [${respTimeStr}] 📥 Resposta da GPU recebida (${respDuration}s) para ${imageUrl}:`, result);
       return result;
     } catch (err) {
-      console.error(LOG, 'sendMessage failed for', imageUrl, err);
+      console.error(LOG, `[${formatTimestamp(new Date())}] ❌ sendMessage failed for`, imageUrl, err);
       return {
         ok: false,
         errorCode: 'EXTENSION_MESSAGE_FAILED',
@@ -781,6 +797,24 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
     overlay.style.display = overlay.style.display === 'none' ? '' : 'none';
   });
   wrapper.appendChild(toggle);
+
+  const endTime = performance.now();
+  const endDate = new Date();
+  const endStr = formatTimestamp(endDate);
+  const totalSeconds = ((endTime - startTime) / 1000).toFixed(2);
+  console.log(`${LOG} [${endStr}] 🏁 Página traduzida e substituída no navegador: ${imageUrl} | Tempo Total: ${totalSeconds}s (Início: ${startStr} → Substituição: ${endStr})`);
+
+  // Crachá/Badge visual permanente com o tempo total de tradução da página
+  const timingBadge = document.createElement('div');
+  timingBadge.className = 'mwt-timing-badge';
+  timingBadge.textContent = `⏱️ ${totalSeconds}s`;
+  timingBadge.title = `Tempo total: ${totalSeconds}s (Início: ${startStr} → Substituição: ${endStr})`;
+  wrapper.appendChild(timingBadge);
+
+  const reviewRow = activeReviewRows.get(img);
+  if (reviewRow) {
+    reviewRow.totalSeconds = totalSeconds;
+  }
 }
 
 // The desktop app's local engine only runs one translation pipeline at a
@@ -790,8 +824,8 @@ async function translateImage(img: HTMLImageElement, force = false): Promise<voi
 // backend's own queue instead of this one. Throttling job creation here
 // too keeps a slow page's backlog from ever building past a few images
 // deep, so each individual job's wait before it actually starts stays
-// short and predictable.
-const MAX_CONCURRENT_TRANSLATIONS = 1;
+// short and predictable. Set to 3 for fast GPU inference without overloading.
+const MAX_CONCURRENT_TRANSLATIONS = 3;
 let runningTranslations = 0;
 const translationQueue: HTMLImageElement[] = [];
 

@@ -4,7 +4,7 @@ import { getI18n } from '../../lib/i18n';
 import type { TranslateImageRequest, TranslateImageResponse } from '../../lib/messages';
 
 const LOG = '[MWT:bg]';
-const POLL_INTERVAL_MS = 1200;
+const POLL_INTERVAL_MS = 800;
 // The desktop app serializes local-engine jobs (one pipeline -- vision LLM
 // translation + LaMa inpainting -- at a time; see state.rs's
 // local_engine_slots), and a single image can take ~3 minutes end to end.
@@ -40,16 +40,27 @@ async function createJob(
   serverUrl: string,
   body: Record<string, unknown>,
 ): Promise<CreateJobResponse> {
-  const res = await fetch(`${serverUrl}/api/jobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`createJob failed (${res.status}): ${text}`);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${serverUrl}/api/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`createJob failed (${res.status}): ${text}`);
+      }
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+      }
+    }
   }
-  return res.json();
+  throw lastErr;
 }
 
 async function pollJob(
@@ -67,7 +78,14 @@ async function pollJob(
     if (shouldStop()) {
       return { status: 'failed', errorCode: 'CANCELLED', errorMessage: dict.stoppedByUser };
     }
-    const res = await fetch(`${serverUrl}/api/jobs/${jobId}`);
+    let res: Response;
+    try {
+      res = await fetch(`${serverUrl}/api/jobs/${jobId}`);
+    } catch {
+      // Falha temporária de rede/túnel: aguarda o próximo ciclo sem derrubar o job
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      continue;
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`pollJob failed (${res.status}): ${text}`);
@@ -127,8 +145,18 @@ async function stopTabTranslations(tabId: number): Promise<void> {
  * network request to 127.0.0.1 itself; there's nothing left to deny.
  */
 async function toDataUrl(url: string): Promise<string> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetching translated image failed (${res.status})`);
+  let res: Response | null = null;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      res = await fetch(url);
+      if (res.ok) break;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
+  if (!res || !res.ok) throw new Error(`fetching translated image failed (${res?.status ?? lastErr})`);
   const contentType = res.headers.get('content-type') || 'image/png';
   // Not FileReader.readAsDataURL: this runs in the background context, which
   // for the Chrome MV3 build is a service worker with no DOM -- no
@@ -169,7 +197,28 @@ async function handleTranslateImage(req: TranslateImageRequest, tabId: number | 
       return { ok: false, errorCode: 'CANCELLED', errorMessage: result.errorMessage, cancelled: true };
     }
     if (result.status === 'succeeded' && result.translatedImageUrl) {
-      const dataUrl = await toDataUrl(result.translatedImageUrl);
+      if (result.translatedImageUrl.startsWith('data:')) {
+        return { ok: true, translatedImageUrl: result.translatedImageUrl, engineUsed: result.engineUsed };
+      }
+      let fullUrl = result.translatedImageUrl;
+      if (fullUrl.startsWith('/')) {
+        fullUrl = `${settings.serverUrl.replace(/\/$/, '')}${fullUrl}`;
+      } else {
+        try {
+          const parsed = new URL(fullUrl);
+          const serverBase = new URL(settings.serverUrl);
+          if (
+            (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') &&
+            serverBase.hostname !== '127.0.0.1' &&
+            serverBase.hostname !== 'localhost'
+          ) {
+            fullUrl = `${settings.serverUrl.replace(/\/$/, '')}${parsed.pathname}`;
+          }
+        } catch {
+          // fallback to original
+        }
+      }
+      const dataUrl = await toDataUrl(fullUrl);
       return { ok: true, translatedImageUrl: dataUrl, engineUsed: result.engineUsed };
     }
     return {
