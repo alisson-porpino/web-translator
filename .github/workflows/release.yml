@@ -1,0 +1,154 @@
+name: Release
+
+# Builds the desktop app (Tauri + Koharu's libtorch/llama.cpp/diffusion
+# native stack) for macOS, Windows and Linux on each platform's own GitHub
+# Actions runner -- this stack can't be cross-compiled reliably from one
+# OS, see specs/ "Release v1 multi-plataforma" plan. Push a tag like
+# "v1.0.0" to build and attach installers to a new GitHub Release; use
+# workflow_dispatch to do a dry-run build without publishing anything.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  release:
+    # Needed for tauri-action and softprops/action-gh-release to create/
+    # update the GitHub Release and upload assets to it -- without this,
+    # the default GITHUB_TOKEN is read-only and "Build and release Tauri
+    # app" fails with "Resource not accessible by integration" the moment
+    # tagName is set (confirmed on the real v1.0.0 tag push, 2026-10-26).
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: ""
+          # ubuntu-22.04 failed to link: rust-lld reported undefined symbols
+          # (__isoc23_strtol/strtoull/strtoll, a libstdc++ basic_string
+          # cold-path symbol) that only exist in glibc >=2.38/GCC 13+'s
+          # runtime libs -- newer than what that image's libstdc++.so/
+          # libc.so actually ship, even though some dependency in the
+          # Koharu native stack is built expecting them. ubuntu-24.04 ships
+          # a matched (newer) glibc+libstdc++ pair, which resolves it.
+          # Confirmed empirically on 2026-10-26's CI dry-run.
+          - platform: ubuntu-24.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install extension dependencies
+        run: npm ci
+        working-directory: extension
+
+      # Pre-built, ready-to-load packages for the desktop app's "Install
+      # extension" button (main.rs's install_extension) -- so installing
+      # the extension never requires the user to run any build tooling
+      # themselves. `wxt zip`'s output filename includes the extension's
+      # own version number, so it's copied to the fixed name
+      # tauri.conf.json's `bundle.resources` and install_extension expect
+      # rather than hardcoding that version here.
+      - name: Build extension packages
+        run: |
+          npm run zip
+          npm run zip:firefox
+          mkdir -p ../desktop/src-tauri/resources
+          cp dist/*-chrome.zip ../desktop/src-tauri/resources/extension-chrome.zip
+          cp dist/*-firefox.zip ../desktop/src-tauri/resources/extension-firefox.zip
+        working-directory: extension
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            cmake \
+            pkg-config \
+            libclang-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Build and release Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop/src-tauri
+          # Only create/attach to a GitHub Release on an actual tag push;
+          # a manual workflow_dispatch run (no tag) just builds and
+          # uploads the installers as workflow artifacts instead.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('Manga Web Translator {0}', github.ref_name) || '' }}
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+      - name: Upload installers as workflow artifacts
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.platform }}
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+            desktop/src-tauri/target/release/bundle/**/*.app
+            desktop/src-tauri/target/release/bundle/**/*.msi
+            desktop/src-tauri/target/release/bundle/**/*.exe
+            desktop/src-tauri/target/release/bundle/**/*.deb
+            desktop/src-tauri/target/release/bundle/**/*.rpm
+            desktop/src-tauri/target/release/bundle/**/*.AppImage
+          if-no-files-found: ignore
+
+      - name: Upload extension packages as workflow artifacts
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-${{ matrix.platform }}
+          path: |
+            desktop/src-tauri/resources/extension-chrome.zip
+            desktop/src-tauri/resources/extension-firefox.zip
+          if-no-files-found: ignore
+
+      # Also attach the extension packages directly to the release, so
+      # they're grabbable on their own without installing the desktop
+      # app. Restricted to one leg of the matrix (content is identical
+      # across platforms -- the extension itself isn't native code) to
+      # avoid 3 parallel jobs racing to upload the same release assets.
+      - name: Attach extension packages to the release
+        if: github.ref_type == 'tag' && matrix.platform == 'ubuntu-24.04'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: |
+            desktop/src-tauri/resources/extension-chrome.zip
+            desktop/src-tauri/resources/extension-firefox.zip

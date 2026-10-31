@@ -6,6 +6,9 @@ extension/.wxt/
 # Desktop app (Rust/Tauri)
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
+# Pre-built extension packages bundled as app resources -- CI produces
+# these (see .github/workflows/release.yml); not committed source.
+desktop/src-tauri/resources/*.zip
 
 # OS / editor
 .DS_Store
